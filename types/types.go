@@ -1,7 +1,7 @@
 package types
 
-// AbitPoiskApplicantEntry описує заяву абітурієнта на Abit-poisk
-type AbitPoiskApplicantEntry struct {
+// ApplicantEntry описує заяву абітурієнта на Abit-poisk
+type ApplicantEntry struct {
 	Degree                string `json:"degree"`
 	FullName              string `json:"full_name"`
 	Status                string `json:"status"`
