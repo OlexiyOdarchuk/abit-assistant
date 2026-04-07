@@ -1,4 +1,4 @@
-module abitassistant
+module github.com/OlexiyOdarchuk/abitassistant
 
 go 1.26.1
 

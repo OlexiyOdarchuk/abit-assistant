@@ -11,8 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"abitassistant/types"
-
+	"github.com/OlexiyOdarchuk/abitassistant/types"
 	"github.com/PuerkitoBio/goquery"
 )
 
