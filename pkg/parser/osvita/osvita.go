@@ -1,0 +1,476 @@
+// Package osvita is a parser.Source implementation for vstup.osvita.ua.
+//
+// vstup.osvita.ua exposes a two-step pagination API: a POST returns a JSON
+// URL, and a GET against that URL returns one page of applicant requests.
+// We fan out N workers, each striding through pages by N*pageSize, and stop
+// once the smallest offset that returned an empty page is reached by all
+// workers.
+package osvita
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"maps"
+	"math"
+	"net/http"
+	"net/http/cookiejar"
+	"net/url"
+	"regexp"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
+	"github.com/PuerkitoBio/goquery"
+	"golang.org/x/net/html"
+)
+
+const (
+	sourceID        = "osvita"
+	defaultAPIURL   = "https://vstup.osvita.ua/api/"
+	defaultPageSize = 500
+	defaultWorkers  = 8
+	defaultTimeout  = 60 * time.Second
+	defaultRetries  = 3
+)
+
+// Parser fetches competitive offer data from vstup.osvita.ua. The zero value
+// is not usable; construct with New.
+type Parser struct {
+	client     *http.Client
+	apiURL     string
+	pageSize   int
+	workers    int
+	maxRetries int
+}
+
+// Option configures a Parser.
+type Option func(*Parser)
+
+// WithHTTPClient overrides the HTTP client. Note: the client must carry a
+// cookie jar — osvita.ua sets a session cookie on the first request.
+func WithHTTPClient(c *http.Client) Option { return func(p *Parser) { p.client = c } }
+
+// WithAPIURL overrides the API endpoint (test injection).
+func WithAPIURL(u string) Option { return func(p *Parser) { p.apiURL = u } }
+
+// WithPageSize overrides the requests-per-page batch size.
+func WithPageSize(n int) Option { return func(p *Parser) { p.pageSize = n } }
+
+// WithWorkers sets the fan-out parallelism.
+func WithWorkers(n int) Option { return func(p *Parser) { p.workers = n } }
+
+// WithMaxRetries sets the per-request retry budget for transient failures.
+func WithMaxRetries(n int) Option { return func(p *Parser) { p.maxRetries = n } }
+
+// New builds a Parser with sensible defaults overridden by opts.
+func New(opts ...Option) *Parser {
+	jar, _ := cookiejar.New(nil)
+	p := &Parser{
+		client:     &http.Client{Timeout: defaultTimeout, Jar: jar},
+		apiURL:     defaultAPIURL,
+		pageSize:   defaultPageSize,
+		workers:    defaultWorkers,
+		maxRetries: defaultRetries,
+	}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
+}
+
+// ID implements parser.Source.
+func (p *Parser) ID() string { return sourceID }
+
+var programURLRe = regexp.MustCompile(`/y(\d{4})/[^/]+/(\d+)/(\d+)/?$`)
+
+// Parse fetches a vstup.osvita.ua program by its public URL of the form
+// https://vstup.osvita.ua/y2025/r14/282/1471029/.
+func (p *Parser) Parse(ctx context.Context, programURL string) (*abit.Program, error) {
+	sid, uid, year, err := parseProgramURL(programURL)
+	if err != nil {
+		return nil, err
+	}
+
+	prog, err := p.fetchStatic(ctx, programURL)
+	if err != nil {
+		return nil, fmt.Errorf("osvita: static page: %w", err)
+	}
+
+	if err := p.fanOut(ctx, prog, sid, uid, year); err != nil {
+		return nil, fmt.Errorf("osvita: requests: %w", err)
+	}
+	return prog, nil
+}
+
+func parseProgramURL(rawURL string) (sid, uid, year string, err error) {
+	u, perr := url.Parse(rawURL)
+	if perr != nil {
+		return "", "", "", fmt.Errorf("%w: %v", abit.ErrInvalidURL, perr)
+	}
+	m := programURLRe.FindStringSubmatch(u.Path)
+	if len(m) != 4 {
+		return "", "", "", fmt.Errorf("%w: path %q", abit.ErrInvalidURL, u.Path)
+	}
+	return m[3], m[2], m[1], nil
+}
+
+// fanOut runs p.workers goroutines, each striding through pages by
+// p.pageSize * p.workers. When a worker sees an empty page at offset O, it
+// ratchets the shared stopAt boundary down to O; the others exit as soon as
+// they reach an offset >= stopAt.
+func (p *Parser) fanOut(ctx context.Context, prog *abit.Program, sid, uid, year string) error {
+	var stopAt atomic.Int64
+	stopAt.Store(math.MaxInt64)
+
+	var (
+		mu       sync.Mutex
+		firstErr error
+		requests []abit.RawRequest
+		subjects = map[string]abit.ApplicantSubjects{}
+		wg       sync.WaitGroup
+	)
+
+	// Warm-up: osvita.ua frequently returns an empty body to a "cold"
+	// session, so prime the cookie jar with one throwaway request.
+	_, _ = p.fetchJSONURL(ctx, formValues(year, sid, uid, 0))
+
+	for w := 0; w < p.workers; w++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			offset := workerID * p.pageSize
+			for {
+				if ctx.Err() != nil {
+					return
+				}
+				if int64(offset) >= stopAt.Load() {
+					return
+				}
+				chunk, err := p.fetchChunk(ctx, sid, uid, year, offset)
+				if err != nil {
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = fmt.Errorf("offset %d: %w", offset, err)
+					}
+					mu.Unlock()
+					return
+				}
+				if len(chunk.Requests) == 0 {
+					ratchetDown(&stopAt, int64(offset))
+					return
+				}
+				mu.Lock()
+				requests = append(requests, chunk.Requests...)
+				maps.Copy(subjects, chunk.Subjects)
+				mu.Unlock()
+				offset += p.pageSize * p.workers
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	prog.Requests = requests
+	prog.RequestSubjects = subjects
+	return firstErr
+}
+
+func ratchetDown(stopAt *atomic.Int64, candidate int64) {
+	for {
+		cur := stopAt.Load()
+		if candidate >= cur {
+			return
+		}
+		if stopAt.CompareAndSwap(cur, candidate) {
+			return
+		}
+	}
+}
+
+func formValues(year, sid, uid string, last int) url.Values {
+	return url.Values{
+		"action": {"requests"},
+		"y":      {year},
+		"sid":    {sid},
+		"uid":    {uid},
+		"last":   {fmt.Sprintf("%d", last)},
+	}
+}
+
+// rawChunk is the decoded JSON of one page.
+type rawChunk struct {
+	Requests []abit.RawRequest                   `json:"requests"`
+	Subjects map[string]abit.ApplicantSubjects   `json:"requests_subjects"`
+}
+
+// fetchChunk runs the two-step API dance: POST to get a signed JSON URL,
+// then GET that URL.
+func (p *Parser) fetchChunk(ctx context.Context, sid, uid, year string, last int) (*rawChunk, error) {
+	form := formValues(year, sid, uid, last)
+
+	var jsonURL string
+	err := p.retry(ctx, func() error {
+		u, err := p.fetchJSONURL(ctx, form)
+		if err != nil {
+			return err
+		}
+		jsonURL = u
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if jsonURL == "" {
+		return &rawChunk{}, nil
+	}
+
+	var chunk *rawChunk
+	err = p.retry(ctx, func() error {
+		c, err := p.fetchPayload(ctx, jsonURL)
+		if err != nil {
+			return err
+		}
+		chunk = c
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return chunk, nil
+}
+
+func (p *Parser) fetchJSONURL(ctx context.Context, form url.Values) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.apiURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if err := checkStatus(resp.StatusCode); err != nil {
+		return "", err
+	}
+	var out struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		if errors.Is(err, io.EOF) {
+			return "", nil
+		}
+		return "", err
+	}
+	return out.URL, nil
+}
+
+func (p *Parser) fetchPayload(ctx context.Context, jsonURL string) (*rawChunk, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jsonURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if err := checkStatus(resp.StatusCode); err != nil {
+		return nil, err
+	}
+	var c rawChunk
+	if err := json.NewDecoder(resp.Body).Decode(&c); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// retriableError marks transient HTTP failures that warrant a retry.
+type retriableError struct{ code int }
+
+func (e retriableError) Error() string { return fmt.Sprintf("http %d", e.code) }
+
+func checkStatus(code int) error {
+	if code/100 == 2 {
+		return nil
+	}
+	if code == http.StatusTooManyRequests || code >= 500 {
+		return retriableError{code: code}
+	}
+	return fmt.Errorf("http %d", code)
+}
+
+func (p *Parser) retry(ctx context.Context, fn func() error) error {
+	backoff := 200 * time.Millisecond
+	var err error
+	for attempt := 0; attempt < p.maxRetries; attempt++ {
+		if err = fn(); err == nil {
+			return nil
+		}
+		var r retriableError
+		if !errors.As(err, &r) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+	}
+	return err
+}
+
+// --- static page (DOM scraping) ---
+
+var (
+	reSpec = regexp.MustCompile(`Спеціальність:\s*(\S+)`)
+	reProg = regexp.MustCompile(`Освітня програма:\s*(.+?)\.`)
+)
+
+func (p *Parser) fetchStatic(ctx context.Context, programURL string) (*abit.Program, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, programURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if err := checkStatus(resp.StatusCode); err != nil {
+		return nil, err
+	}
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	prog := &abit.Program{
+		ProgramInfo: map[string]string{},
+		Volume:      map[string]string{},
+	}
+	prog.UniversityName = strings.TrimSpace(doc.Find(".page-vnz-detail-title h2").First().Text())
+
+	title := doc.Find(".page-vnz-detail-title h1").Text()
+	if m := reSpec.FindStringSubmatch(title); len(m) > 1 {
+		prog.SpecCode = strings.TrimSuffix(m[1], ".")
+	}
+	if m := reProg.FindStringSubmatch(title); len(m) > 1 {
+		prog.ProgramName = strings.TrimSpace(m[1])
+	}
+
+	doc.Find(".table-of-specs-item b").Each(func(_ int, b *goquery.Selection) {
+		key := strings.TrimSpace(strings.ReplaceAll(b.Text(), ":", ""))
+		if key == "" {
+			return
+		}
+		val := siblingText(b)
+		if val == "" {
+			val = strings.TrimSpace(b.NextAllFiltered("span").First().Text())
+		}
+		if val == "" {
+			val = strings.TrimSpace(b.NextAllFiltered("a").First().Text())
+		}
+		if val != "" {
+			prog.ProgramInfo[key] = val
+		}
+	})
+
+	doc.Find(".block-pro-vnz").Each(func(_ int, s *goquery.Selection) {
+		if !strings.Contains(s.Text(), "Ліцензований обсяг") {
+			return
+		}
+		s.Find("b").Each(func(_ int, b *goquery.Selection) {
+			node := b.Get(0)
+			if node.PrevSibling == nil || node.PrevSibling.Type != html.TextNode {
+				return
+			}
+			key := strings.TrimSuffix(strings.TrimSpace(node.PrevSibling.Data), ":")
+			val := strings.TrimSpace(b.Text())
+			if key != "" && val != "" {
+				prog.Volume[key] = val
+			}
+		})
+	})
+
+	var js strings.Builder
+	doc.Find("script").Each(func(_ int, s *goquery.Selection) {
+		if text := s.Text(); text != "" {
+			js.WriteString(text)
+			js.WriteByte('\n')
+		}
+	})
+	if jsText := js.String(); jsText != "" {
+		prog.Statuses = parseJSStringMap(jsText, "statuses")
+		prog.RecTypes = parseJSStringMap(jsText, "rec_types")
+	}
+
+	return prog, nil
+}
+
+func siblingText(b *goquery.Selection) string {
+	n := b.Get(0).NextSibling
+	if n == nil || n.Type != html.TextNode {
+		return ""
+	}
+	return strings.TrimSpace(n.Data)
+}
+
+// extractJSExpr extracts the right-hand side of an assignment "name = ..."
+// (either {...} or [...]) by balancing brackets. Returns "" if not found.
+func extractJSExpr(js, name string) string {
+	_, rest, ok := strings.Cut(js, name)
+	if !ok {
+		return ""
+	}
+	rest = strings.TrimLeft(rest, " \t\n=")
+	if rest == "" {
+		return ""
+	}
+	open := rest[0]
+	var close byte
+	switch open {
+	case '{':
+		close = '}'
+	case '[':
+		close = ']'
+	default:
+		return ""
+	}
+	depth := 0
+	for i := 0; i < len(rest); i++ {
+		switch rest[i] {
+		case open:
+			depth++
+		case close:
+			depth--
+			if depth == 0 {
+				return rest[:i+1]
+			}
+		}
+	}
+	return ""
+}
+
+// parseJSStringMap returns a string→string map parsed from an inline JS
+// object literal. Returns nil when the variable is absent or unparseable —
+// callers should treat that as "feature not exposed by the page".
+func parseJSStringMap(js, name string) map[string]string {
+	raw := extractJSExpr(js, name)
+	if raw == "" {
+		return nil
+	}
+	// JS object literals use single quotes; JSON wants double.
+	s := strings.ReplaceAll(raw, `'`, `"`)
+	var out map[string]string
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return nil
+	}
+	return out
+}

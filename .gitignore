@@ -1,0 +1,25 @@
+# Build artifacts
+/bin/
+/aa
+/abit-assistant
+
+# Local environment
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Test/scratch outputs from development
+/files/
+/abit-poisk.json
+/data.json
+/file.json
+*.gfo
+
+# Go
+*.test
+*.out
+coverage.txt
