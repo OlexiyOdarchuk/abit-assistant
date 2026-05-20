@@ -19,6 +19,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -407,11 +408,40 @@ func (p *Parser) fetchStatic(ctx context.Context, programURL string) (*abit.Prog
 		}
 	})
 	if jsText := js.String(); jsText != "" {
-		prog.Statuses = parseJSStringMap(jsText, "statuses")
-		prog.RecTypes = parseJSStringMap(jsText, "rec_types")
+		extractJSConfig(jsText, prog)
 	}
 
 	return prog, nil
+}
+
+// extractJSConfig pulls every JS-defined config value the decoder needs.
+// Missing values fall back to sensible defaults (RK=1.0, K4Max=0.35).
+func extractJSConfig(js string, prog *abit.Program) {
+	prog.Statuses = parseJSStringMap(js, "statuses")
+	prog.RecTypes = parseJSStringMap(js, "rec_types")
+	if v, ok := parseJSInt(js, "eb"); ok {
+		prog.EB = v
+	}
+	if v, ok := parseJSInt(js, "okr"); ok {
+		prog.OKR = v
+	}
+	prog.K4Max = 0.35
+	if v, ok := parseJSFloat(js, "k4max"); ok {
+		prog.K4Max = v
+	}
+	prog.RK = 1.0
+	if v, ok := parseJSFloat(js, "rk"); ok {
+		prog.RK = v
+	}
+	if v, ok := parseJSIntSlice(js, "nmts"); ok {
+		prog.NMTs = v
+	}
+	if v, ok := parseJSIntSlice(js, "sub4ar"); ok {
+		prog.Sub4ar = v
+	}
+	if v, ok := parseJSSubjects(js, "subjects"); ok {
+		prog.Subjects = v
+	}
 }
 
 func siblingText(b *goquery.Selection) string {
@@ -423,23 +453,21 @@ func siblingText(b *goquery.Selection) string {
 }
 
 // extractJSExpr extracts the right-hand side of an assignment "name = ..."
-// (either {...} or [...]) by balancing brackets. Returns "" if not found.
+// (either {...} or [...]) by balancing brackets. Word-boundary matching
+// avoids false positives from substring hits (e.g. "statuses" inside a
+// callback). Returns "" if not found.
 func extractJSExpr(js, name string) string {
-	_, rest, ok := strings.Cut(js, name)
-	if !ok {
-		return ""
-	}
-	rest = strings.TrimLeft(rest, " \t\n=")
+	rest := findAssignmentRHS(js, name)
 	if rest == "" {
 		return ""
 	}
 	open := rest[0]
-	var close byte
+	var closeCh byte
 	switch open {
 	case '{':
-		close = '}'
+		closeCh = '}'
 	case '[':
-		close = ']'
+		closeCh = ']'
 	default:
 		return ""
 	}
@@ -448,7 +476,7 @@ func extractJSExpr(js, name string) string {
 		switch rest[i] {
 		case open:
 			depth++
-		case close:
+		case closeCh:
 			depth--
 			if depth == 0 {
 				return rest[:i+1]
@@ -458,19 +486,103 @@ func extractJSExpr(js, name string) string {
 	return ""
 }
 
-// parseJSStringMap returns a string→string map parsed from an inline JS
-// object literal. Returns nil when the variable is absent or unparseable —
-// callers should treat that as "feature not exposed by the page".
+// findAssignmentRHS returns the text immediately after `<name> =` (with
+// optional whitespace), but only for occurrences of name surrounded by
+// word boundaries.
+func findAssignmentRHS(js, name string) string {
+	re := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\s*=\s*`)
+	loc := re.FindStringIndex(js)
+	if loc == nil {
+		return ""
+	}
+	return js[loc[1]:]
+}
+
+// extractJSScalar returns the literal between "<name> =" and the next
+// terminator (`;`, `,`, `\n`, or `)`). Used for primitive values like
+// `var eb = 40`. Returns "" if not found.
+func extractJSScalar(js, name string) string {
+	rest := findAssignmentRHS(js, name)
+	if rest == "" {
+		return ""
+	}
+	end := len(rest)
+	for i := 0; i < len(rest); i++ {
+		switch rest[i] {
+		case ';', '\n', ',', ')':
+			end = i
+			i = len(rest)
+		}
+	}
+	return strings.TrimSpace(rest[:end])
+}
+
+// parseJSStringMap parses a JS object literal of string→string pairs. The
+// page's JSON is already well-formed (double quotes); the single→double
+// replacement is a defensive fallback. Returns nil on miss/parse fail.
 func parseJSStringMap(js, name string) map[string]string {
 	raw := extractJSExpr(js, name)
 	if raw == "" {
 		return nil
 	}
-	// JS object literals use single quotes; JSON wants double.
 	s := strings.ReplaceAll(raw, `'`, `"`)
 	var out map[string]string
 	if err := json.Unmarshal([]byte(s), &out); err != nil {
 		return nil
 	}
 	return out
+}
+
+// parseJSInt parses `<name> = <integer>` and returns (value, true) on success.
+func parseJSInt(js, name string) (int, bool) {
+	s := extractJSScalar(js, name)
+	if s == "" {
+		return 0, false
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}
+
+// parseJSFloat parses `<name> = <float>` (or integer). Returns (value, true)
+// on success. Non-numeric RHS (e.g. `parseFloat(...)`) yields (0, false).
+func parseJSFloat(js, name string) (float64, bool) {
+	s := extractJSScalar(js, name)
+	if s == "" {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}
+
+// parseJSIntSlice parses `<name> = [1, 2, 3, ...]`.
+func parseJSIntSlice(js, name string) ([]int, bool) {
+	raw := extractJSExpr(js, name)
+	if raw == "" {
+		return nil, false
+	}
+	var out []int
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, false
+	}
+	return out, true
+}
+
+// parseJSSubjects parses the page's `subjects = [...]` array directly into
+// the typed SubjectMeta slice.
+func parseJSSubjects(js, name string) ([]abit.SubjectMeta, bool) {
+	raw := extractJSExpr(js, name)
+	if raw == "" {
+		return nil, false
+	}
+	var out []abit.SubjectMeta
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, false
+	}
+	return out, true
 }

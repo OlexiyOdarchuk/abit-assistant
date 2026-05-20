@@ -26,15 +26,57 @@ type Abiturient struct {
 // Program is everything we know about a single competitive offer
 // (educational program at a university) from a source.
 type Program struct {
-	UniversityName  string                 `json:"university_name"`
-	ProgramName     string                 `json:"program_name"`
-	SpecCode        string                 `json:"spec_code"`
-	ProgramInfo     map[string]string      `json:"program_info,omitempty"`
-	Volume          map[string]string      `json:"volume,omitempty"`
-	Statuses        map[string]string      `json:"statuses,omitempty"`
-	RecTypes        map[string]string      `json:"rec_types,omitempty"`
+	UniversityName string `json:"university_name"`
+	ProgramName    string `json:"program_name"`
+	SpecCode       string `json:"spec_code"`
+
+	// EB is the education-base code (40 = on top of complete general
+	// secondary education). Most score-calculation rules only kick in
+	// when EB == 40.
+	EB int `json:"eb"`
+	// OKR is the educational-qualification-level code (1 = bachelor, ...).
+	OKR int `json:"okr"`
+	// K4Max is the maximum coefficient applied to the 4th subject (default 0.35).
+	K4Max float64 `json:"k4max"`
+	// RK is the regional coefficient (default 1.0).
+	RK float64 `json:"rk"`
+	// NMTs lists program-local subject IDs that count as NMT (НМТ).
+	NMTs []int `json:"nmts,omitempty"`
+	// Sub4ar lists program-local subject IDs eligible for the 4th-subject
+	// bonus (k4max).
+	Sub4ar []int `json:"sub4ar,omitempty"`
+	// Subjects is the program's subject rubric (name, weights, IDs).
+	Subjects []SubjectMeta `json:"subjects,omitempty"`
+
+	ProgramInfo     map[string]string            `json:"program_info,omitempty"`
+	Volume          map[string]string            `json:"volume,omitempty"`
+	Statuses        map[string]string            `json:"statuses,omitempty"`
+	RecTypes        map[string]string            `json:"rec_types,omitempty"`
 	Requests        []RawRequest                 `json:"requests,omitempty"`
 	RequestSubjects map[string]ApplicantSubjects `json:"request_subjects,omitempty"`
+}
+
+// SubjectMeta describes one subject within a program's rubric.
+type SubjectMeta struct {
+	// ID is the program-local subject ID, referenced from
+	// RequestSubjects keys, NMTs and Sub4ar.
+	ID int `json:"id"`
+	// SubjectID is the global subject identifier — used by the score
+	// calculator (e.g. SubjectAttestat, SubjectGK, ...).
+	SubjectID int `json:"si"`
+	// Name is the human-readable subject name ("Українська мова",
+	// "Математика", ...). Used as the key in Abiturient.DetailScores.
+	Name string `json:"s"`
+	// Coefficient is the weight applied to the subject score.
+	Coefficient float64 `json:"k"`
+	// Required is 1 when the subject is mandatory, 0 when optional.
+	Required int `json:"x"`
+	// EFID is the educational-form ID associated with the subject.
+	EFID int `json:"ef"`
+	// VW is an opaque flag carried verbatim from osvita.
+	VW int `json:"vw"`
+	// IsNMT mirrors the per-subject "nmt" field.
+	IsNMT int `json:"nmt"`
 }
 
 // RawRequest is a single raw applicant row as returned by the source. The

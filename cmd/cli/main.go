@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/edbo"
+	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
 	"github.com/OlexiyOdarchuk/abit-assistant/pkg/parser/abitpoisk"
 	"github.com/OlexiyOdarchuk/abit-assistant/pkg/parser/osvita"
 )
@@ -42,6 +43,8 @@ func main() {
 		err = runOsvita(ctx, os.Args[2:])
 	case "abitpoisk":
 		err = runAbitPoisk(ctx, os.Args[2:])
+	case "decode":
+		err = runDecode(os.Args[2:])
 	case "edbo":
 		err = runEdbo(os.Args[2:])
 	case "help", "-h", "--help":
@@ -66,10 +69,12 @@ func usage(w *os.File) {
 Commands:
   osvita    <program-url>                  Parse a vstup.osvita.ua program page.
   abitpoisk <"surname initial initial">    Search abit-poisk.org.ua.
+  decode    [< program.json]               Decode a Program (stdin) into []Abiturient.
   edbo decrypt <b64> <n> <prsid> [year]    Decrypt a vstup.edbo.gov.ua name blob.
 
 Examples:
   aa osvita https://vstup.osvita.ua/y2025/r14/282/1471029/
+  aa osvita https://... | aa decode
   aa abitpoisk "Куцелюк Д О"
   aa edbo decrypt MnZncVNmOGwva0UxZGFOK1VMTHpHdz09 1 14 2025`)
 }
@@ -105,6 +110,17 @@ func runAbitPoisk(ctx context.Context, args []string) error {
 		return err
 	}
 	return emitJSON(entries)
+}
+
+func runDecode(args []string) error {
+	if len(args) != 0 {
+		return errors.New("usage: aa decode  (reads Program JSON from stdin)")
+	}
+	var prog abit.Program
+	if err := json.NewDecoder(os.Stdin).Decode(&prog); err != nil {
+		return fmt.Errorf("decode program: %w", err)
+	}
+	return emitJSON(abit.Decode(&prog))
 }
 
 func runEdbo(args []string) error {
