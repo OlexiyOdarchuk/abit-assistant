@@ -52,6 +52,7 @@ const (
 	btnUniqueToggleMode       = "toggle_mode"
 	btnUniqueSummary          = "summary"
 	btnUniqueViewList         = "view_list"
+	btnUniqueChart            = "chart"
 	btnUniqueSaveList         = "save_list"
 
 	// Saved lists.

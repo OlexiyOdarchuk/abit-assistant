@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/bot/callback"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/visualizer"
 	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
 )
 
@@ -197,6 +199,41 @@ func (b *Bot) handleViewListCB(c tele.Context) error {
 		return err
 	}
 	return b.showResultsPage(c, rawURL, page, mode)
+}
+
+// handleChartCB renders a histogram of the program's score distribution
+// and sends it as a Telegram photo. Coloring marks competitors red and
+// non-competitors green relative to the user's own rating.
+func (b *Bot) handleChartCB(c tele.Context) error {
+	rawURL, _, _, _, err := b.viewingState(c)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+
+	prog, err := b.programSvc.Fetch(ctx, rawURL)
+	if err != nil {
+		return fmt.Errorf("не вдалося завантажити дані: %w", err)
+	}
+	abits := abit.Decode(prog)
+	userScore := b.userRating(ctx, senderID(c), prog)
+
+	_ = c.Notify(tele.UploadingPhoto)
+	png, err := visualizer.Histogram(abits, userScore, 5)
+	if err != nil {
+		return fmt.Errorf("не вдалося згенерувати графік: %w", err)
+	}
+
+	photo := &tele.Photo{
+		File:    tele.File{FileReader: bytes.NewReader(png)},
+		Caption: fmt.Sprintf("📊 *%s* — %s", mdEscape(prog.UniversityName), mdEscape(prog.ProgramName)),
+	}
+	if err := c.Send(photo, tele.ModeMarkdown); err != nil {
+		return err
+	}
+	return c.Respond()
 }
 
 // handleSaveListCB persists the current program snapshot under the user
@@ -768,9 +805,10 @@ func buildSummaryView(prog *abit.Program, an abit.Analysis) (string, *tele.Reply
 	kb.Inline(
 		kb.Row(kb.Data("📋 Дивитись список", btnUniqueViewList)),
 		kb.Row(
+			kb.Data("📊 Графік балів", btnUniqueChart),
 			kb.Data("💾 Зберегти", btnUniqueSaveList),
-			kb.Data("⬅️ Меню", btnUniqueMenu),
 		),
+		kb.Row(kb.Data("⬅️ Меню", btnUniqueMenu)),
 	)
 	return sb.String(), kb
 }
