@@ -6,40 +6,102 @@ import (
 	"testing"
 )
 
-// TestDecryptName_KnownSample is wired to fire once a captured (b64, n,
-// prsid, year) quadruple from a live vstup.edbo.gov.ua page is plugged in.
-// The placeholder sample carried over from main.go does not have its real
-// (n, prsid) — they're guesses — so unpadding fails and we skip until a
-// genuine capture is added.
-func TestDecryptName_KnownSample(t *testing.T) {
-	t.Skip("needs a real (b64, n, prsid, year) tuple from a live edbo page; see TODO in package docs")
+// TestRoundTrip proves the algorithm is self-consistent: encrypting a
+// plaintext and decrypting the result with the same (salt, year) gives
+// back exactly the input. Without a live EDBO blob to compare against
+// this is the most we can verify locally — it does NOT prove that we
+// match production byte-for-byte, only that the AES/SHA256/base64
+// chain in Decrypt is internally consistent.
+func TestRoundTrip(t *testing.T) {
+	cases := []struct {
+		name      string
+		plaintext string
+		salt      string
+		year      string
+	}{
+		{"ascii", "Іваненко І.О.", "v14", "2025"},
+		{"long cyrillic", "Шевченко-Петренко Тарас Григорович", "v123", "2025"},
+		{"unicode mix", "О’Брайєн О. О.", "v9876", "2026"},
+		{"single rune", "А", "v1", "2025"},
+		{"empty year override", "abc", "v0", "2024"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			blob, err := Encrypt(tc.plaintext, tc.salt, tc.year)
+			if err != nil {
+				t.Fatalf("Encrypt: %v", err)
+			}
+			got, err := Decrypt(blob, tc.salt, tc.year)
+			if err != nil {
+				t.Fatalf("Decrypt: %v", err)
+			}
+			if got != tc.plaintext {
+				t.Errorf("round-trip mismatch:\n got:  %q\n want: %q", got, tc.plaintext)
+			}
+		})
+	}
+}
 
-	got, err := DecryptName("MnZncVNmOGwva0UxZGFOK1VMTHpHdz09", 1, 14, "2025")
+// TestSaltMultiply pins the canonical "v" + a*b format that matches
+// vstup2025.edbo.gov.ua/js/functions.js — multiply(a, b) returns
+// 'v' + Number(a) * Number(b).
+func TestSaltMultiply(t *testing.T) {
+	cases := []struct {
+		a, b int
+		want string
+	}{
+		{14, 5, "v70"},
+		{1, 1, "v1"},
+		{0, 0, "v0"},
+		{100, 100, "v10000"},
+	}
+	for _, tc := range cases {
+		got := SaltMultiply(tc.a, tc.b)
+		if got != tc.want {
+			t.Errorf("SaltMultiply(%d, %d) = %q, want %q",
+				tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+// TestDecryptName_WrongSaltFails is a sanity check: a blob produced
+// with one salt cannot be decoded with another — the padding check
+// must reject (or AES garbage clearly doesn't match plaintext).
+func TestDecryptName_WrongSaltFails(t *testing.T) {
+	blob, err := Encrypt("Test Test", "v100", "2025")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Decrypt(blob, "v999", "2025")
+	if err == nil && got == "Test Test" {
+		t.Fatal("decryption with wrong salt should not yield the plaintext")
+	}
+	// Either we get a clean padding error, or we get garbage — both fine.
+	if err != nil && !errors.Is(err, ErrInvalidPadding) && !errors.Is(err, ErrInvalidBlockSize) {
+		t.Logf("got %v (acceptable: padding or garbage)", err)
+	}
+}
+
+func TestDecrypt_InvalidBase64(t *testing.T) {
+	if _, err := Decrypt("@@@not-base64@@@", "v1", "2025"); err == nil {
+		t.Fatal("expected error on garbage base64 input")
+	}
+}
+
+// TestDecryptName_KnownSample is a placeholder for the day we have a
+// captured (encrypted_blob, prsid, n, year, expected_name) tuple from
+// a live EDBO page. The 2025 vstup2025.edbo.gov.ua archive serves only
+// "Конкурсна пропозиція не знайдена" stubs after the campaign closed,
+// so we cannot pin one today. Re-enable when 2026 launches and a real
+// quadruple lands in the repo.
+func TestDecryptName_KnownSample(t *testing.T) {
+	t.Skip("needs a live (b64, prsid, n, year, plaintext) quadruple — re-enable when 2026 campaign opens")
+
+	got, err := DecryptName("…blob…", 14, 1, "2026")
 	if err != nil {
 		t.Fatalf("DecryptName: %v", err)
 	}
-	if got == "" || strings.ContainsAny(got, "\x00\x01\x02\x03") {
-		t.Fatalf("DecryptName returned suspect output: %q", got)
-	}
-	t.Logf("decrypted = %q", got)
-}
-
-func TestDecryptName_InvalidBase64(t *testing.T) {
-	_, err := DecryptName("@@@not-base64@@@", 1, 14, "2025")
-	if err == nil {
-		t.Fatal("expected error on invalid base64")
-	}
-}
-
-func TestDecryptName_WrongParamsYieldsBadPadding(t *testing.T) {
-	// Using the same sample but wrong prsid/n should fail unpadding —
-	// the AES block decrypts to garbage, which almost certainly isn't a
-	// valid PKCS#7 suffix.
-	_, err := DecryptName("MnZncVNmOGwva0UxZGFOK1VMTHpHdz09", 999, 999, "2025")
-	if err == nil {
-		t.Fatal("expected error with wrong (n, prsid)")
-	}
-	if !errors.Is(err, ErrInvalidPadding) && !errors.Is(err, ErrInvalidBlockSize) {
-		t.Fatalf("expected padding/block error, got %v", err)
+	if strings.TrimSpace(got) == "" {
+		t.Fatal("empty plaintext")
 	}
 }

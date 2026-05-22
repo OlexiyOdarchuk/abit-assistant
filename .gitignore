@@ -19,6 +19,7 @@
 /abit-poisk.json
 /data.json
 /file.json
+tools/
 *.gfo
 
 # Go
