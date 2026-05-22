@@ -1,0 +1,15 @@
+-- name: SaveList :one
+INSERT INTO saved_lists (user_tg_id, name, url, data)
+VALUES (?, ?, ?, ?)
+RETURNING id;
+
+-- name: ListSavedLists :many
+SELECT * FROM saved_lists
+WHERE user_tg_id = ?
+ORDER BY created_at DESC;
+
+-- name: GetSavedList :one
+SELECT * FROM saved_lists WHERE id = ?;
+
+-- name: DeleteSavedList :exec
+DELETE FROM saved_lists WHERE id = ?;
