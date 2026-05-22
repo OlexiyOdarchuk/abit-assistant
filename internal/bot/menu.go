@@ -37,14 +37,18 @@ Open-source бот для абітурієнтів України. Тягне к
 // Unique strings for inline-keyboard buttons. Each handler registers
 // against these so dispatch is type-safe — no magic-string callback data.
 const (
-	btnUniqueMenu     = "menu"
-	btnUniqueSearch   = "search"
-	btnUniqueProfile  = "profile"
-	btnUniqueLists    = "lists"
-	btnUniqueAbout    = "about"
-	btnUniqueDonate   = "donate"
-	btnUniquePagePrev = "page_prev"
-	btnUniquePageNext = "page_next"
+	btnUniqueMenu              = "menu"
+	btnUniqueSearch            = "search"
+	btnUniqueProfile           = "profile"
+	btnUniqueLists             = "lists"
+	btnUniqueAbout             = "about"
+	btnUniqueDonate            = "donate"
+	btnUniquePagePrev          = "page_prev"
+	btnUniquePageNext          = "page_next"
+	btnUniqueApplicant         = "applicant_view"
+	btnUniqueApplicantHistory  = "applicant_history"
+	btnUniqueBackToList        = "back_to_list"
+	btnUniqueNoop              = "noop"
 )
 
 // mainMenuKeyboard builds the inline keyboard shown on /start and /menu.

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 const (
 	pageSize      = 10
 	searchTimeout = 90 * time.Second
+	historyLimit  = 10
 
 	// FSM states. Convention: <feature>.<step>.
 	fsmStateWaitingURL = "search.waiting_url"
@@ -31,10 +34,10 @@ const (
 
 // --- Command handlers -----------------------------------------------------
 
-func (b *Bot) handleStart(c tele.Context) error  { return b.renderMenu(c) }
-func (b *Bot) handleMenu(c tele.Context) error   { return b.renderMenu(c) }
-func (b *Bot) handleHelp(c tele.Context) error   { return c.Send(helpText, tele.ModeMarkdown) }
-func (b *Bot) handleAbout(c tele.Context) error  { return b.renderAbout(c) }
+func (b *Bot) handleStart(c tele.Context) error { return b.renderMenu(c) }
+func (b *Bot) handleMenu(c tele.Context) error  { return b.renderMenu(c) }
+func (b *Bot) handleHelp(c tele.Context) error  { return c.Send(helpText, tele.ModeMarkdown) }
+func (b *Bot) handleAbout(c tele.Context) error { return b.renderAbout(c) }
 
 func (b *Bot) handleCancel(c tele.Context) error {
 	if err := b.fsm.Clear(context.Background(), senderID(c)); err != nil {
@@ -61,9 +64,6 @@ func (b *Bot) handleSearch(c tele.Context) error {
 	return b.runSearch(c, raw)
 }
 
-// handleText is the OnText catch-all. It routes the message either to
-// active FSM state, or — if the message looks like an osvita URL —
-// to an implicit /search.
 func (b *Bot) handleText(c tele.Context) error {
 	text := strings.TrimSpace(c.Text())
 
@@ -95,27 +95,92 @@ func (b *Bot) handlePagePrev(c tele.Context) error { return b.flipPage(c, -1) }
 func (b *Bot) handlePageNext(c tele.Context) error { return b.flipPage(c, +1) }
 
 func (b *Bot) flipPage(c tele.Context, delta int) error {
-	uid := senderID(c)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	state, err := b.fsm.Get(ctx, uid)
-	cancel()
+	rawURL, curPage, err := b.viewingState(c)
 	if err != nil {
-		return fmt.Errorf("не вдалося прочитати стан: %w", err)
+		return err
 	}
-	if state.Name != fsmStateViewing {
-		return errors.New("сесію переглядання втрачено — почни знову з /search")
-	}
-	rawURL := state.Get(fsmKeyURL)
-	curPage, _ := state.Data[fsmKeyPage].(float64) // JSON numbers come back as float64
-	newPage := int(curPage) + delta
-
 	args := callback.From(c)
 	if v, ok := args.Int(0); ok {
-		// Explicit page from callback — defends against state drift.
-		newPage = v + delta
+		// Use the page baked into the button — defends against state drift.
+		curPage = v
+	}
+	return b.showResultsPage(c, rawURL, curPage+delta)
+}
+
+// handleApplicantView opens the detail screen for the applicant whose ID
+// is in callback args.
+func (b *Bot) handleApplicantView(c tele.Context) error {
+	id, ok := callback.From(c).Int(0)
+	if !ok {
+		return errors.New("втрачено ID абітурієнта")
+	}
+	rawURL, _, err := b.viewingState(c)
+	if err != nil {
+		return err
 	}
 
-	return b.showResultsPage(c, rawURL, newPage)
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+	abits, err := b.programSvc.FetchDecoded(ctx, rawURL)
+	if err != nil {
+		return fmt.Errorf("не вдалося завантажити дані: %w", err)
+	}
+	ab := findApplicant(abits, id)
+	if ab == nil {
+		return errors.New("абітурієнта не знайдено в поточному списку")
+	}
+
+	text, kb := buildApplicantDetail(*ab)
+	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
+}
+
+// handleApplicantHistory shows the applicant's submissions across all
+// universities via abit-poisk.
+func (b *Bot) handleApplicantHistory(c tele.Context) error {
+	id, ok := callback.From(c).Int(0)
+	if !ok {
+		return errors.New("втрачено ID абітурієнта")
+	}
+	rawURL, _, err := b.viewingState(c)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+	abits, err := b.programSvc.FetchDecoded(ctx, rawURL)
+	if err != nil {
+		return fmt.Errorf("не вдалося завантажити дані: %w", err)
+	}
+	ab := findApplicant(abits, id)
+	if ab == nil {
+		return errors.New("абітурієнта не знайдено")
+	}
+	if isMaskedName(ab.Name) {
+		return errors.New("ім'я приховане — інші заяви недоступні")
+	}
+
+	if err := c.Notify(tele.Typing); err != nil {
+		b.log.Debug("notify typing", "err", err)
+	}
+	entries, err := b.applicantSvc.Search(ctx, ab.Name)
+	if err != nil && !errors.Is(err, abit.ErrNoData) {
+		return fmt.Errorf("не вдалося знайти інші заяви: %w", err)
+	}
+
+	text, kb := buildHistoryView(*ab, entries)
+	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
+}
+
+// handleBackToList re-renders the page the user was on before opening a
+// detail screen. The page index lives in FSM, so this works even after a
+// bot restart.
+func (b *Bot) handleBackToList(c tele.Context) error {
+	rawURL, page, err := b.viewingState(c)
+	if err != nil {
+		return err
+	}
+	return b.showResultsPage(c, rawURL, page)
 }
 
 // --- Shared rendering -----------------------------------------------------
@@ -153,9 +218,10 @@ func (b *Bot) runSearch(c tele.Context, rawURL string) error {
 	return b.showResultsPage(c, rawURL, 0)
 }
 
-// showResultsPage runs (or re-runs through cache) the program lookup and
-// renders the requested page in place. Also updates FSM so pagination
-// buttons know which URL to flip.
+// showResultsPage runs (or re-runs through cache) the program lookup
+// and renders the requested page in place. Persists FSM so deeper
+// screens (detail, history) and pagination buttons know which URL +
+// page they're attached to.
 func (b *Bot) showResultsPage(c tele.Context, rawURL string, page int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
@@ -186,8 +252,30 @@ func (b *Bot) showResultsPage(c tele.Context, rawURL string, page int) error {
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
 }
 
-// --- View builder ---------------------------------------------------------
+// viewingState reads the URL + current page from FSM for the user.
+// Returns a clear error message if the user is not in the search.viewing
+// state — handlers should propagate this to the user as-is.
+func (b *Bot) viewingState(c tele.Context) (rawURL string, page int, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	state, err := b.fsm.Get(ctx, senderID(c))
+	if err != nil {
+		return "", 0, fmt.Errorf("не вдалося прочитати стан: %w", err)
+	}
+	if state.Name != fsmStateViewing {
+		return "", 0, errors.New("сесію переглядання втрачено — почни з /search")
+	}
+	rawURL = state.Get(fsmKeyURL)
+	if p, ok := state.Data[fsmKeyPage].(float64); ok {
+		page = int(p)
+	}
+	return rawURL, page, nil
+}
 
+// --- View builders --------------------------------------------------------
+
+// buildResultsView renders the program header as text + a grid of inline
+// buttons (10 applicants per page) + pagination + back-to-menu.
 func buildResultsView(prog *abit.Program, abits []abit.Abiturient, page int) (string, *tele.ReplyMarkup) {
 	total := len(abits)
 	maxPage := (total - 1) / pageSize
@@ -197,22 +285,33 @@ func buildResultsView(prog *abit.Program, abits []abit.Abiturient, page int) (st
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "📋 *%s* — %s\n",
 		mdEscape(prog.UniversityName), mdEscape(prog.ProgramName))
-	fmt.Fprintf(&sb, "Знайдено *%d* заяв. Сторінка %d / %d\n\n",
+	fmt.Fprintf(&sb, "Знайдено *%d* заяв · Сторінка %d / %d\n\n",
 		total, page+1, maxPage+1)
-	for i := start; i < end; i++ {
-		writeApplicantLine(&sb, abits[i], i+1)
-	}
+	sb.WriteString("Натисни на абітурієнта для деталей 👇")
 
 	kb := &tele.ReplyMarkup{}
-	rows := []tele.Row{}
+	rows := make([]tele.Row, 0, end-start+3)
+
+	for i := start; i < end; i++ {
+		ab := abits[i]
+		rows = append(rows, kb.Row(kb.Data(
+			applicantButtonLabel(ab, i+1),
+			btnUniqueApplicant,
+			callback.Encode(strconv.Itoa(ab.ID)),
+		)))
+	}
+
 	if maxPage > 0 {
-		nav := []tele.Btn{}
+		nav := make([]tele.Btn, 0, 3)
 		if page > 0 {
-			nav = append(nav, kb.Data("◀️", btnUniquePagePrev, callback.Encode(formatPage(page))))
+			nav = append(nav, kb.Data("◀️", btnUniquePagePrev,
+				callback.Encode(strconv.Itoa(page))))
 		}
-		nav = append(nav, kb.Data(fmt.Sprintf("%d / %d", page+1, maxPage+1), "noop"))
+		nav = append(nav, kb.Data(
+			fmt.Sprintf("%d / %d", page+1, maxPage+1), btnUniqueNoop))
 		if page < maxPage {
-			nav = append(nav, kb.Data("▶️", btnUniquePageNext, callback.Encode(formatPage(page))))
+			nav = append(nav, kb.Data("▶️", btnUniquePageNext,
+				callback.Encode(strconv.Itoa(page))))
 		}
 		rows = append(rows, kb.Row(nav...))
 	}
@@ -221,22 +320,218 @@ func buildResultsView(prog *abit.Program, abits []abit.Abiturient, page int) (st
 	return sb.String(), kb
 }
 
-func writeApplicantLine(sb *strings.Builder, ab abit.Abiturient, rank int) {
-	fmt.Fprintf(sb, "*%d.* %s — `%.3f`\n", rank, mdEscape(ab.Name), ab.Score)
-	fmt.Fprintf(sb, "    %s", mdEscape(ab.Status))
-	if ab.RecType != "" {
-		fmt.Fprintf(sb, " · %s", mdEscape(ab.RecType))
+// applicantButtonLabel is what shows up on the applicant's button.
+// Compact: rank, status marker, name, score. Inline buttons have a
+// pragmatic length cap before Telegram hides text on small screens.
+func applicantButtonLabel(ab abit.Abiturient, rank int) string {
+	marker := statusMarker(ab.Status)
+	label := fmt.Sprintf("%d. %s%s — %.1f", rank, marker, ab.Name, ab.Score)
+	if len(label) > 60 {
+		// truncate from the name field to keep the score visible
+		label = label[:57] + "…"
 	}
-	if len(ab.Quotas) > 0 {
-		fmt.Fprintf(sb, " · 🏷 %s", strings.Join(ab.Quotas, ", "))
-	}
-	if ab.Documents {
-		sb.WriteString(" · 📄")
-	}
-	sb.WriteString("\n\n")
+	return label
 }
 
-func formatPage(n int) string { return fmt.Sprintf("%d", n) }
+func statusMarker(status string) string {
+	low := strings.ToLower(status)
+	switch {
+	case strings.HasPrefix(low, "до наказу"):
+		return "✅ "
+	case strings.HasPrefix(low, "рекомендовано"):
+		return "🟢 "
+	case strings.HasPrefix(low, "допущено"):
+		return "🟡 "
+	case strings.HasPrefix(low, "деактивовано"):
+		return "🔄 "
+	case strings.HasPrefix(low, "відхилено"), strings.HasPrefix(low, "відмова"),
+		strings.HasPrefix(low, "відраховано"), strings.HasPrefix(low, "скасовано"):
+		return "⛔ "
+	}
+	return ""
+}
+
+// buildApplicantDetail renders the full record + actions for one applicant.
+func buildApplicantDetail(ab abit.Abiturient) (string, *tele.ReplyMarkup) {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "📄 *%s*\n\n", mdEscape(ab.Name))
+	fmt.Fprintf(&sb, "📊 *Статус:* %s\n", mdEscape(ab.Status))
+	if ab.RecType != "" {
+		fmt.Fprintf(&sb, "🏆 *Рекомендація:* %s\n", mdEscape(ab.RecType))
+	}
+	fmt.Fprintf(&sb, "🎯 *Пріоритет:* %d\n", ab.Priority)
+	fmt.Fprintf(&sb, "📈 *Конкурсний бал:* `%.3f`\n", ab.Score)
+
+	fundingMarker := "контракт"
+	if ab.StateEducation {
+		fundingMarker = "бюджет"
+	}
+	fmt.Fprintf(&sb, "💰 *Подавався на:* %s\n", fundingMarker)
+	if ab.Documents {
+		sb.WriteString("📄 *Оригінали:* подані\n")
+	}
+	if len(ab.Quotas) > 0 {
+		fmt.Fprintf(&sb, "🏷 *Квоти:* %s\n", strings.Join(ab.Quotas, ", "))
+	}
+	if len(ab.Coefficients) > 0 {
+		fmt.Fprintf(&sb, "⚙️ *Коефіцієнти:* %s\n", strings.Join(ab.Coefficients, ", "))
+	}
+	if ab.OtherReq > 0 {
+		fmt.Fprintf(&sb, "🔀 *Інший пріоритет:* %d\n", ab.OtherReq)
+	}
+
+	if len(ab.DetailScores) > 0 {
+		sb.WriteString("\n📚 *Бали з предметів:*\n")
+		for _, subj := range sortedKeys(ab.DetailScores) {
+			fmt.Fprintf(&sb, "   • %s: `%g`\n",
+				mdEscape(subj), ab.DetailScores[subj])
+		}
+	}
+
+	kb := &tele.ReplyMarkup{}
+	idStr := strconv.Itoa(ab.ID)
+	rows := make([]tele.Row, 0, 4)
+
+	if !isMaskedName(ab.Name) {
+		rows = append(rows, kb.Row(kb.Data(
+			"📋 Інші заяви", btnUniqueApplicantHistory, callback.Encode(idStr))))
+	}
+
+	// External links: abit-poisk + the konkurs-ball calculator.
+	extra := []tele.Btn{}
+	if ab.AbitLink != "" {
+		extra = append(extra, kb.URL("🔎 abit-poisk", ab.AbitLink))
+	}
+	if ab.CalcLink != "" {
+		extra = append(extra, kb.URL("🧮 Калькулятор", ab.CalcLink))
+	}
+	if len(extra) > 0 {
+		rows = append(rows, kb.Row(extra...))
+	}
+
+	rows = append(rows, kb.Row(
+		kb.Data("⬅️ До списку", btnUniqueBackToList),
+		kb.Data("🏠 Меню", btnUniqueMenu),
+	))
+	kb.Inline(rows...)
+	return sb.String(), kb
+}
+
+// buildHistoryView renders the applicant's other applications.
+func buildHistoryView(ab abit.Abiturient, entries []abit.ApplicantEntry) (string, *tele.ReplyMarkup) {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "📋 *%s* — інші заяви\n\n", mdEscape(ab.Name))
+
+	if len(entries) == 0 {
+		sb.WriteString("_На abit-poisk нічого не знайдено._")
+	} else {
+		// Sort by priority asc, then by total score desc so the most
+		// relevant submissions come first.
+		sort.SliceStable(entries, func(i, j int) bool {
+			pi, _ := strconv.Atoi(strings.TrimSpace(entries[i].Priority))
+			pj, _ := strconv.Atoi(strings.TrimSpace(entries[j].Priority))
+			if pi != pj {
+				if pi == 0 {
+					return false
+				}
+				if pj == 0 {
+					return true
+				}
+				return pi < pj
+			}
+			return entries[i].TotalScore > entries[j].TotalScore
+		})
+
+		limit := min(len(entries), historyLimit)
+		for _, e := range entries[:limit] {
+			marker := historyMarker(e.Status)
+			fmt.Fprintf(&sb, "%s *%s* · %s\n",
+				marker, mdEscape(truncated(e.University, 40)),
+				mdEscape(truncated(e.Specialty, 40)))
+			details := []string{}
+			if p := strings.TrimSpace(e.Priority); p != "" {
+				details = append(details, "#"+p)
+			}
+			if s := strings.TrimSpace(e.TotalScore); s != "" {
+				details = append(details, "бал "+s)
+			}
+			if d := strings.TrimSpace(e.Degree); d != "" {
+				details = append(details, "("+d+")")
+			}
+			if len(details) > 0 {
+				fmt.Fprintf(&sb, "   %s\n", mdEscape(strings.Join(details, " · ")))
+			}
+			if s := strings.TrimSpace(e.Status); s != "" {
+				fmt.Fprintf(&sb, "   _%s_\n", mdEscape(s))
+			}
+			sb.WriteString("\n")
+		}
+		if len(entries) > limit {
+			fmt.Fprintf(&sb, "_…та ще %d заяв_\n", len(entries)-limit)
+		}
+	}
+
+	kb := &tele.ReplyMarkup{}
+	idStr := strconv.Itoa(ab.ID)
+	rows := []tele.Row{
+		kb.Row(kb.Data("⬅️ До абітурієнта", btnUniqueApplicant, callback.Encode(idStr))),
+		kb.Row(
+			kb.Data("📋 До списку", btnUniqueBackToList),
+			kb.Data("🏠 Меню", btnUniqueMenu),
+		),
+	}
+	kb.Inline(rows...)
+	return sb.String(), kb
+}
+
+// historyMarker reflects the status of an abit-poisk row.
+func historyMarker(status string) string {
+	low := strings.ToLower(status)
+	switch {
+	case strings.Contains(low, "до наказу"):
+		return "✅"
+	case strings.Contains(low, "рекомендовано"):
+		return "🟢"
+	case strings.Contains(low, "допущено"):
+		return "🟡"
+	case strings.Contains(low, "деактивовано"):
+		return "🔄"
+	case strings.Contains(low, "відмова"), strings.Contains(low, "відхилено"),
+		strings.Contains(low, "скасовано"), strings.Contains(low, "відраховано"):
+		return "⛔"
+	}
+	return "•"
+}
+
+// --- helpers --------------------------------------------------------------
+
+// findApplicant locates an Abiturient by ID in a decoded list. Linear is
+// fine — the lists are <10k entries and we hit them at most once per
+// callback. The program lookup before this is cache-served.
+func findApplicant(abits []abit.Abiturient, id int) *abit.Abiturient {
+	for i := range abits {
+		if abits[i].ID == id {
+			return &abits[i]
+		}
+	}
+	return nil
+}
+
+func sortedKeys(m map[string]float64) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// isMaskedName reports whether the upstream privacy-masked the applicant
+// name (e.g. "Іва###" or a single word). Mirrors the same check used by
+// the enrich service.
+func isMaskedName(name string) bool {
+	return strings.Contains(name, "###") || len(strings.Fields(name)) < 2
+}
 
 // mdEscape escapes characters reserved by Telegram's legacy Markdown.
 // Legacy Markdown is used (not MarkdownV2) — fewer reserved chars,
