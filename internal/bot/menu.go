@@ -69,12 +69,12 @@ const (
 	btnUniqueNoop = "noop"
 
 	// Admin panel.
-	btnUniqueAdmin                  = "admin"
-	btnUniqueAdminStats             = "admin_stats"
-	btnUniqueAdminBroadcast         = "admin_bc"
-	btnUniqueAdminBroadcastConfirm  = "admin_bc_yes"
-	btnUniqueAdminBroadcastCancel   = "admin_bc_no"
-	btnUniqueAdminVacuum            = "admin_vacuum"
+	btnUniqueAdmin                 = "admin"
+	btnUniqueAdminStats            = "admin_stats"
+	btnUniqueAdminBroadcast        = "admin_bc"
+	btnUniqueAdminBroadcastConfirm = "admin_bc_yes"
+	btnUniqueAdminBroadcastCancel  = "admin_bc_no"
+	btnUniqueAdminVacuum           = "admin_vacuum"
 
 	// Profile flow.
 	btnUniqueProfileEditNMT       = "p_edit_nmt"

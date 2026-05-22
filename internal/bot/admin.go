@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	adminTimeout      = 5 * time.Second
-	broadcastTimeout  = 15 * time.Minute
-	broadcastRateMS   = 50 // ~20 msg/sec — well under Telegram's 30/sec global cap
+	adminTimeout     = 5 * time.Second
+	broadcastTimeout = 15 * time.Minute
+	broadcastRateMS  = 50 // ~20 msg/sec — well under Telegram's 30/sec global cap
 
 	fsmStateAdminBroadcast        = "admin.broadcast.text"
 	fsmStateAdminBroadcastConfirm = "admin.broadcast.confirm"

@@ -162,11 +162,17 @@ func (b *Bot) handleText(c tele.Context) error {
 // a user who taps "⬅️ Меню" while mid-input doesn't have their next
 // free-text message hijacked by a stale handler (admin broadcast, NMT
 // score entry, creative score, URL prompt).
-func (b *Bot) handleMenuCB(c tele.Context) error    { b.clearTransientFSM(c); return b.renderMenu(c) }
-func (b *Bot) handleAboutCB(c tele.Context) error   { b.clearTransientFSM(c); return b.renderAbout(c) }
-func (b *Bot) handleSearchCB(c tele.Context) error  { b.clearTransientFSM(c); return b.askForURL(c) }
-func (b *Bot) handleProfileCB(c tele.Context) error { b.clearTransientFSM(c); return b.renderProfile(c) }
-func (b *Bot) handleListsCB(c tele.Context) error   { b.clearTransientFSM(c); return b.renderSavedLists(c) }
+func (b *Bot) handleMenuCB(c tele.Context) error   { b.clearTransientFSM(c); return b.renderMenu(c) }
+func (b *Bot) handleAboutCB(c tele.Context) error  { b.clearTransientFSM(c); return b.renderAbout(c) }
+func (b *Bot) handleSearchCB(c tele.Context) error { b.clearTransientFSM(c); return b.askForURL(c) }
+func (b *Bot) handleProfileCB(c tele.Context) error {
+	b.clearTransientFSM(c)
+	return b.renderProfile(c)
+}
+func (b *Bot) handleListsCB(c tele.Context) error {
+	b.clearTransientFSM(c)
+	return b.renderSavedLists(c)
+}
 
 // clearTransientFSM wipes any text-waiting FSM state — admin.broadcast.*,
 // profile.enter_*, search.waiting_url. Persistent "viewing" state is
