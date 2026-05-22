@@ -46,12 +46,27 @@ func WithEndpoint(u string) Option { return func(cl *Client) { cl.endpoint = u }
 // WithUserAgent overrides the User-Agent header.
 func WithUserAgent(ua string) Option { return func(cl *Client) { cl.userAgent = ua } }
 
-// WithInsecureTLS disables TLS verification. Use only when the upstream's
-// certificate is known-broken and you accept the risk.
+// WithInsecureTLS disables TLS verification. Use only when the
+// upstream's certificate is known-broken (abit-poisk.org.ua serves an
+// incomplete chain) and you accept the risk.
+//
+// Implementation note: mutates the existing client's Transport instead
+// of replacing the whole *http.Client. That way other options
+// (WithHTTPClient, custom CookieJar / CheckRedirect) survive regardless
+// of declaration order.
 func WithInsecureTLS() Option {
 	return func(cl *Client) {
-		tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-		cl.http = &http.Client{Timeout: cl.http.Timeout, Transport: tr}
+		base, ok := cl.http.Transport.(*http.Transport)
+		if !ok || base == nil {
+			base = http.DefaultTransport.(*http.Transport).Clone()
+		} else {
+			base = base.Clone()
+		}
+		if base.TLSClientConfig == nil {
+			base.TLSClientConfig = &tls.Config{}
+		}
+		base.TLSClientConfig.InsecureSkipVerify = true
+		cl.http.Transport = base
 	}
 }
 

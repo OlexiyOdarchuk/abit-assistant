@@ -2,8 +2,10 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	tele "gopkg.in/telebot.v3"
@@ -51,23 +53,61 @@ func (b *Bot) recoverPanics(next tele.HandlerFunc) tele.HandlerFunc {
 // message (alert for callbacks, plain text for messages) and returns it
 // up so the outer logger can record it. Handlers must NOT send their
 // own error messages — keeps the UX consistent.
+//
+// User-facing messages go through userFacing() — short, user-safe
+// strings. The raw error (which may contain DB internals, parser URLs,
+// or other implementation noise) stays in the log only.
 func (b *Bot) reportErrors(next tele.HandlerFunc) tele.HandlerFunc {
 	return func(c tele.Context) error {
 		err := next(c)
 		if err == nil {
 			return nil
 		}
-		msg := "⚠️ " + err.Error()
+		shown := userFacing(err)
 		if cb := c.Callback(); cb != nil {
 			_ = c.Respond(&tele.CallbackResponse{
-				Text:      truncated(err.Error(), 190),
+				Text:      truncated(shown, 190),
 				ShowAlert: true,
 			})
 		} else {
-			_ = c.Send(msg)
+			_ = c.Send("⚠️ " + shown)
 		}
 		return err
 	}
+}
+
+// userFacing turns an error into something safe and concise to send
+// to the user. Most handlers return `errors.New("щось не вдалося")`
+// with Ukrainian text — those are passed through trimmed. We collapse
+// only the ones that smell like raw infrastructure: SQL drivers,
+// panics, parser-internal fmt.Errorf wraps with file paths.
+func userFacing(err error) string {
+	var be botError
+	if errors.As(err, &be) {
+		return string(be)
+	}
+	msg := err.Error()
+	if looksLikeInternal(msg) {
+		return string(errInternal)
+	}
+	return msg
+}
+
+// looksLikeInternal returns true for error strings that obviously
+// originate from infrastructure (not handler-formatted user messages).
+// Conservative: false positives just show a generic toast, false
+// negatives leak a few extra bytes — preferable.
+func looksLikeInternal(s string) bool {
+	for _, marker := range []string{
+		"sql:", "sqlite", "ssl:", "tls:", "panic:",
+		"goroutine ", "/home/", "/usr/", "no such file",
+		"connection refused",
+	} {
+		if strings.Contains(s, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // trackUser is middleware that ensures the user row exists and bumps the

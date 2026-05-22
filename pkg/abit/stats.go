@@ -87,10 +87,10 @@ func Distribution(applicants []Abiturient, bucketSize float64) []Bucket {
 	}
 	for _, s := range scores {
 		idx := int(math.Floor(s/bucketSize)) - loIdx
-		if idx == len(out) {
-			// the topmost score sits exactly on an upper edge — push into last bucket
-			idx = len(out) - 1
-		}
+		// idx is guaranteed in [0, len(out)-1] because hiIdx ==
+		// floor(maxS/bucketSize) and s ≤ maxS. The old "idx == len(out)"
+		// guard was dead code — left a comment here in case a future
+		// switch to ceil-based bucketing re-introduces the case.
 		out[idx].Count++
 	}
 	return out

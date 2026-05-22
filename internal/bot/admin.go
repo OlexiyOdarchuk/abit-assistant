@@ -235,9 +235,16 @@ func (b *Bot) handleAdminBroadcastCancel(c tele.Context) error {
 
 // runBroadcast sends `text` to every user ID in storage, rate-limited
 // under Telegram's bulk-message ceiling. Reports the delivered/failed
-// counts to the initiating admin when done.
+// counts to the initiating admin when done. Context derives from the
+// bot's rootCtx, so SIGTERM cancels the loop early and the report
+// surfaces what was already sent (instead of leaving the goroutine
+// running past process exit with nothing to show for it).
 func (b *Bot) runBroadcast(adminID int64, text string) {
-	ctx, cancel := context.WithTimeout(context.Background(), broadcastTimeout)
+	parent := b.rootCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, broadcastTimeout)
 	defer cancel()
 
 	ids, err := b.store.Queries.ListUserIDs(ctx)
@@ -263,12 +270,16 @@ func (b *Bot) runBroadcast(adminID int64, text string) {
 		time.Sleep(broadcastRateMS * time.Millisecond)
 	}
 
+	title := "📣 *Розсилка завершена*"
+	if ctx.Err() != nil {
+		title = "📣 *Розсилка перервана (бот зупиняється)*"
+	}
 	report := fmt.Sprintf(
-		"📣 *Розсилка завершена*\n\n"+
+		"%s\n\n"+
 			"✅ Доставлено: *%d*\n"+
 			"⚠️ Невдало: *%d*\n"+
 			"👥 Усього: *%d*",
-		delivered, failed, len(ids))
+		title, delivered, failed, len(ids))
 	b.notifyAdmin(adminID, report)
 }
 

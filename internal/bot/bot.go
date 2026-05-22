@@ -27,6 +27,9 @@ type Bot struct {
 	applicantSvc *service.ApplicantService
 	enrichSvc    *service.EnrichService
 	log          *slog.Logger
+	// rootCtx is set by Run; long-running goroutines (broadcast) derive
+	// their context from it so SIGTERM stops them gracefully.
+	rootCtx context.Context
 }
 
 // Deps bundles everything Bot needs from the outside. cmd/bot is the
@@ -78,7 +81,10 @@ func New(deps Deps) (*Bot, error) {
 
 // Run blocks until ctx is cancelled, at which point the bot is gracefully
 // stopped. Each Telegram poll cycle observes the context internally.
+// ctx is also stashed on the Bot so detached operations (broadcasts)
+// can derive shutdown-aware contexts from it.
 func (b *Bot) Run(ctx context.Context) error {
+	b.rootCtx = ctx
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
