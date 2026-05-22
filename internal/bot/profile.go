@@ -157,17 +157,21 @@ func (b *Bot) renderSubjectActions(c tele.Context, subj string, score float64) e
 	text := fmt.Sprintf("📝 *%s*: `%g`\n\nЩо зробити?", mdEscape(subj), score)
 	kb := &tele.ReplyMarkup{}
 	kb.Inline(
-		kb.Row(kb.Data("✏️ Змінити бал", btnUniqueProfileSubject, subj)),
+		kb.Row(kb.Data("✏️ Змінити бал", btnUniqueProfileSubjectEdit, subj)),
 		kb.Row(kb.Data("🗑 Видалити", btnUniqueProfileSubjectDelete, subj)),
 		kb.Row(kb.Data("⬅️ Назад", btnUniqueProfileEditNMT)),
 	)
-	// Trick: handleProfileSubject re-asks for score when the subject exists,
-	// but we want "Edit" to skip the actions screen and prompt for a value.
-	// Clear the current score from the local NMT view by directly asking.
-	if c.Callback() != nil && callback.From(c).String(1) == "edit" {
-		return b.askForScore(c, subj)
-	}
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb)
+}
+
+// handleProfileSubjectEdit is the "✏️ Змінити бал" button — skips the
+// actions screen and jumps straight to entering a new score.
+func (b *Bot) handleProfileSubjectEdit(c tele.Context) error {
+	subj := callback.From(c).String(0)
+	if subj == "" || !isKnownSubject(subj) {
+		return errors.New("невідомий предмет")
+	}
+	return b.askForScore(c, subj)
 }
 
 // handleProfileEnterScore is invoked from the OnText catch-all when the

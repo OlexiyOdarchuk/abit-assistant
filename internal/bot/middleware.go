@@ -102,9 +102,13 @@ func senderID(c tele.Context) int64 {
 	return c.Sender().ID
 }
 
+// truncated cuts s to at most n runes (NOT bytes — Cyrillic / emoji
+// would otherwise be cut mid-codepoint), appending "…" if shortened.
 func truncated(s string, n int) string {
-	if len(s) <= n {
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	return string(r[:n]) + "…"
 }
+

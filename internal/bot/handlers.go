@@ -856,10 +856,9 @@ func applicantButtonLabel(ab abit.Abiturient, rank int, userScore float64, overr
 	statusM := statusMarker(ab.Status)
 	label := fmt.Sprintf("%d. %s%s%s — %.1f",
 		rank, threatMarker, statusM, ab.Name, ab.Score)
-	if len(label) > 60 {
-		label = label[:57] + "…"
-	}
-	return label
+	// Cyrillic is multi-byte in UTF-8 — truncate by rune, not by byte,
+	// or Telegram rejects the keyboard with an invalid-UTF-8 error.
+	return truncateRunes(label, 60)
 }
 
 func statusMarker(status string) string {

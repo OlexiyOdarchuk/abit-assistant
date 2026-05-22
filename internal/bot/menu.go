@@ -79,6 +79,7 @@ const (
 	// Profile flow.
 	btnUniqueProfileEditNMT       = "p_edit_nmt"
 	btnUniqueProfileSubject       = "p_subj"
+	btnUniqueProfileSubjectEdit   = "p_subj_edit"
 	btnUniqueProfileSubjectDelete = "p_subj_del"
 	btnUniqueProfileQuotas        = "p_quotas"
 	btnUniqueProfileQuotaToggle   = "p_quota_t"

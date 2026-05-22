@@ -7,12 +7,16 @@ import (
 // registerRoutes binds every command and callback handler to the
 // telebot instance and applies the middleware chain.
 //
-// Middleware order matters: recoverPanics is outermost so a downstream
-// panic is converted to an error; logUpdates wraps it so even panicked
-// handlers get a log line; reportErrors comes next so the user gets the
-// friendly message; trackUser is closest to the handler.
+// Middleware order matters. With telebot's Use, the LAST one passed is
+// the innermost — so the call ordering for a request is:
+//
+//	logUpdates → reportErrors → trackUser → recoverPanics → handler
+//
+// recoverPanics must be the innermost so it catches the panic *before*
+// it unwinds past reportErrors — otherwise the user gets no friendly
+// toast when a handler panics.
 func (b *Bot) registerRoutes() {
-	b.tg.Use(b.recoverPanics, b.logUpdates, b.reportErrors, b.trackUser)
+	b.tg.Use(b.logUpdates, b.reportErrors, b.trackUser, b.recoverPanics)
 
 	// Commands.
 	b.tg.Handle("/start", b.handleStart)
@@ -64,6 +68,7 @@ func (b *Bot) registerRoutes() {
 		btnUniqueProfileBack:          b.handleProfileBack,
 		btnUniqueProfileEditNMT:       b.handleProfileEditNMT,
 		btnUniqueProfileSubject:       b.handleProfileSubject,
+		btnUniqueProfileSubjectEdit:   b.handleProfileSubjectEdit,
 		btnUniqueProfileSubjectDelete: b.handleProfileSubjectDelete,
 		btnUniqueProfileQuotas:        b.handleProfileQuotas,
 		btnUniqueProfileQuotaToggle:   b.handleProfileQuotaToggle,
