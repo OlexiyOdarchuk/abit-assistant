@@ -1,6 +1,7 @@
 # Build artifacts
 /bin/
 /aa
+/bot
 /abit-assistant
 
 # Local environment

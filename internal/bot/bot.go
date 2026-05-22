@@ -11,6 +11,7 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/bot/fsm"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/config"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/service"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
@@ -21,6 +22,7 @@ type Bot struct {
 	tg           *tele.Bot
 	cfg          *config.Config
 	store        *storage.Store
+	fsm          *fsm.Manager
 	programSvc   *service.ProgramService
 	applicantSvc *service.ApplicantService
 	enrichSvc    *service.EnrichService
@@ -64,6 +66,7 @@ func New(deps Deps) (*Bot, error) {
 		tg:           tg,
 		cfg:          deps.Config,
 		store:        deps.Store,
+		fsm:          fsm.New(deps.Store),
 		programSvc:   deps.Program,
 		applicantSvc: deps.Applicant,
 		enrichSvc:    deps.Enrich,

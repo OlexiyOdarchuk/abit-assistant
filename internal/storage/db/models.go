@@ -10,6 +10,13 @@ type ApplicantCache struct {
 	UpdatedAt int64
 }
 
+type BotFsm struct {
+	TgID      int64
+	State     string
+	Data      string
+	UpdatedAt int64
+}
+
 type ProgramCache struct {
 	URL       string
 	Data      string

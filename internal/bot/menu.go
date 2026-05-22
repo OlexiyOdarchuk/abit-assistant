@@ -1,0 +1,123 @@
+package bot
+
+import (
+	tele "gopkg.in/telebot.v3"
+)
+
+// Texts kept here so every handler renders the same canonical phrasing.
+const (
+	welcomeText = `🎓 *AbitAssistant*
+
+Я допоможу побачити, хто реально конкурує з тобою на бюджет, а хто просто заповнює список. Дані тягну з vstup.osvita.ua і abit-poisk.
+
+Обери дію 👇`
+
+	helpText = `*Команди*
+
+` + "`/menu`" + ` — головне меню
+` + "`/search <url>`" + ` — швидкий аналіз програми з vstup.osvita.ua
+` + "`/profile`" + ` — твої НМТ і налаштування
+` + "`/lists`" + ` — збережені аналізи
+` + "`/about`" + ` — про бот
+` + "`/cancel`" + ` — вийти з поточного діалогу
+` + "`/help`" + ` — це повідомлення
+
+Можна також просто скинути боту посилання на vstup.osvita.ua — він зрозуміє.`
+
+	aboutText = `*AbitAssistant 3.0*
+
+Open-source бот для абітурієнтів України. Тягне конкурсні списки з vstup.osvita.ua, шукає «реальних» конкурентів і рахує твої шанси.
+
+👨‍💻 Автор: [Олексій Одарчук](https://t.me/NeShawyha)
+🛠 Код: [GitHub](https://github.com/OlexiyOdarchuk/abit-assistant)
+📄 Ліцензія: GPLv3
+💸 [Підтримати на Monobank](https://send.monobank.ua/jar/23E3WYNesG)`
+)
+
+// Unique strings for inline-keyboard buttons. Each handler registers
+// against these so dispatch is type-safe — no magic-string callback data.
+const (
+	btnUniqueMenu     = "menu"
+	btnUniqueSearch   = "search"
+	btnUniqueProfile  = "profile"
+	btnUniqueLists    = "lists"
+	btnUniqueAbout    = "about"
+	btnUniqueDonate   = "donate"
+	btnUniquePagePrev = "page_prev"
+	btnUniquePageNext = "page_next"
+)
+
+// mainMenuKeyboard builds the inline keyboard shown on /start and /menu.
+func mainMenuKeyboard() *tele.ReplyMarkup {
+	kb := &tele.ReplyMarkup{}
+	kb.Inline(
+		kb.Row(kb.Data("📊 Аналіз спеціальності", btnUniqueSearch)),
+		kb.Row(
+			kb.Data("👤 Профіль", btnUniqueProfile),
+			kb.Data("📂 Списки", btnUniqueLists),
+		),
+		kb.Row(
+			kb.Data("ℹ️ Про бот", btnUniqueAbout),
+			kb.URL("💸 Підтримати", "https://send.monobank.ua/jar/23E3WYNesG"),
+		),
+	)
+	return kb
+}
+
+// backToMenuKeyboard is the single-button keyboard for sub-screens.
+func backToMenuKeyboard() *tele.ReplyMarkup {
+	kb := &tele.ReplyMarkup{}
+	kb.Inline(kb.Row(kb.Data("⬅️ Меню", btnUniqueMenu)))
+	return kb
+}
+
+// renderOrEdit sends a new message OR edits the current one when the
+// trigger was an inline button (callback). This is what keeps the chat
+// from flickering — Python's delete+answer is replaced with a single
+// in-place update.
+func renderOrEdit(c tele.Context, text string, opts ...any) error {
+	if c.Callback() != nil {
+		err := c.Edit(text, opts...)
+		// "message is not modified" happens when the user double-taps a
+		// button that points to the screen they're already on — silent.
+		if err != nil && !isNotModified(err) {
+			return err
+		}
+		return c.Respond()
+	}
+	return c.Send(text, opts...)
+}
+
+func isNotModified(err error) bool {
+	return err != nil && (containsCI(err.Error(), "not modified") ||
+		containsCI(err.Error(), "message is not modified"))
+}
+
+// containsCI is a tiny case-insensitive substring check we want to avoid
+// pulling strings.ToLower allocations into hot paths.
+func containsCI(haystack, needle string) bool {
+	// Telegram errors are ASCII; a lowercased compare is fine.
+	if len(haystack) < len(needle) {
+		return false
+	}
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		match := true
+		for j := 0; j < len(needle); j++ {
+			a, b := haystack[i+j], needle[j]
+			if a >= 'A' && a <= 'Z' {
+				a += 'a' - 'A'
+			}
+			if b >= 'A' && b <= 'Z' {
+				b += 'a' - 'A'
+			}
+			if a != b {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
