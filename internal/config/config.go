@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -31,7 +32,7 @@ type Config struct {
 func Load() (*Config, error) {
 	c := &Config{
 		TelegramToken: os.Getenv("TELEGRAM_TOKEN"),
-		DatabasePath:  envOr("DATABASE_PATH", "./data/abit.db"),
+		DatabasePath:  envOr("DATABASE_PATH", defaultDatabasePath()),
 		LogLevel:      envOr("LOG_LEVEL", "info"),
 	}
 	ids, err := parseInt64List(os.Getenv("ADMIN_IDS"))
@@ -40,6 +41,33 @@ func Load() (*Config, error) {
 	}
 	c.AdminIDs = ids
 	return c, nil
+}
+
+// defaultDatabasePath returns the OS-conventional location for the
+// SQLite file. Resolution order:
+//
+//  1. Legacy: if `./data/abit.db` already exists in the current working
+//     directory, prefer it so existing installs don't suddenly switch
+//     locations and "lose" the profile.
+//  2. XDG: $XDG_DATA_HOME/abit-assistant/abit.db (Linux conventional).
+//  3. Home: $HOME/.local/share/abit-assistant/abit.db (XDG default).
+//  4. Last resort: ./data/abit.db (cwd-relative).
+//
+// The point: a user who runs `go run ./cmd/bot` and then later
+// `aa-bot` from a different cwd lands on the SAME file. Setting
+// DATABASE_PATH explicitly overrides everything.
+func defaultDatabasePath() string {
+	const legacy = "./data/abit.db"
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy
+	}
+	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
+		return filepath.Join(xdg, "abit-assistant", "abit.db")
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".local", "share", "abit-assistant", "abit.db")
+	}
+	return legacy
 }
 
 // Validate checks that fields required for the Telegram bot entrypoint are
