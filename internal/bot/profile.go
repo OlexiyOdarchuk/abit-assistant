@@ -374,7 +374,7 @@ func buildNMTEditView(nmt storage.UserNMT) (string, *tele.ReplyMarkup) {
 
 	kb := &tele.ReplyMarkup{}
 	rows := make([]tele.Row, 0)
-	row := make([]tele.Btn, 0, 2)
+	var row []tele.Btn
 	for _, subj := range profileSubjects {
 		label := subj
 		if _, ok := nmt[subj]; ok {
@@ -383,7 +383,7 @@ func buildNMTEditView(nmt storage.UserNMT) (string, *tele.ReplyMarkup) {
 		row = append(row, kb.Data(label, btnUniqueProfileSubject, subj))
 		if len(row) == 2 {
 			rows = append(rows, kb.Row(row...))
-			row = row[:0]
+			row = nil
 		}
 	}
 	if len(row) > 0 {
