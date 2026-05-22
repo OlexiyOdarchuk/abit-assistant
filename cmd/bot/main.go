@@ -40,6 +40,10 @@ func main() {
 }
 
 func run() error {
+	// Best-effort: load .env if present in CWD. Existing env vars win.
+	if err := config.LoadDotEnv(".env"); err != nil {
+		return fmt.Errorf(".env: %w", err)
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
