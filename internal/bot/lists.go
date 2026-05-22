@@ -165,10 +165,10 @@ func (b *Bot) handleListRefresh(c tele.Context) error {
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
 }
 
-// handleListShare renders a deep link `t.me/<bot>?start=list_<id>`.
-// Recipients who follow it get a clone of the snapshot saved into their
-// own /lists. Telegram's share-with-contact intent goes through the
-// official `t.me/share/url` page.
+// handleListShare renders a deep link keyed by the list's opaque share
+// token (not the numeric id). The token is unguessable — only the
+// owner who taps "Поділитись" reveals it — so recipients can't brute
+// force their way into other users' snapshots.
 func (b *Bot) handleListShare(c tele.Context) error {
 	id, ok := callback.From(c).Int64(0)
 	if !ok {
@@ -181,11 +181,15 @@ func (b *Bot) handleListShare(c tele.Context) error {
 	if err != nil {
 		return err
 	}
+	if item.ShareToken == "" {
+		return errors.New("у списку немає токена шерингу — пересохрани його")
+	}
 
 	if b.tg.Me == nil || b.tg.Me.Username == "" {
 		return errors.New("не вдалося отримати username бота")
 	}
-	link := fmt.Sprintf("https://t.me/%s?start=list_%d", b.tg.Me.Username, id)
+	link := fmt.Sprintf("https://t.me/%s?start=share_%s",
+		b.tg.Me.Username, item.ShareToken)
 
 	text := fmt.Sprintf(
 		"🔗 *Поділитися аналізом*\n\n"+
@@ -200,7 +204,6 @@ func (b *Bot) handleListShare(c tele.Context) error {
 		kb.Row(kb.URL("📤 Надіслати в Telegram", shareURL)),
 		kb.Row(kb.Data("⬅️ Назад", btnUniqueListManage, callback.Encode(idStr))),
 	)
-	_ = item // keep ownership-check side effect; future tweaks may use item.Name
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
 }
 
@@ -240,7 +243,7 @@ func (b *Bot) handleListsBack(c tele.Context) error { return b.renderSavedLists(
 func (b *Bot) loadOwnedList(ctx context.Context, c tele.Context, id int64) (*storage.SavedList, error) {
 	item, err := b.store.GetSavedList(ctx, id)
 	if err != nil {
-		if errors.Is(err, storage.ErrCacheMiss) {
+		if errors.Is(err, storage.ErrNotFound) {
 			return nil, errors.New("список не знайдено")
 		}
 		return nil, fmt.Errorf("не вдалося прочитати список: %w", err)
@@ -283,7 +286,10 @@ func buildListManageView(item *storage.SavedList) (string, *tele.ReplyMarkup) {
 	fmt.Fprintf(&sb, "📅 Збережено: `%s`\n",
 		item.CreatedAt.Format("2006-01-02 15:04"))
 	if item.URL != "" {
-		fmt.Fprintf(&sb, "🔗 [Джерело](%s)\n", item.URL)
+		// Render as plain text + tele.NoPreview at send time — embedding
+		// untrusted URLs in [text](url) markdown was a parse-entities
+		// crash vector (URL with `)` breaks the link parser).
+		fmt.Fprintf(&sb, "🔗 %s\n", item.URL)
 	}
 	if item.Program != nil && item.Program.UniversityName != "" {
 		fmt.Fprintf(&sb, "\n🎓 %s\n", mdEscape(item.Program.UniversityName))

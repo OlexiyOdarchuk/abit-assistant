@@ -6,8 +6,10 @@ package storage
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,12 +29,16 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-// Sentinel errors returned by Store cache helpers.
+// Sentinel errors.
 var (
 	// ErrCacheMiss means the requested key isn't in the cache table.
+	// Reserved for the program_cache / applicant_cache tables.
 	ErrCacheMiss = errors.New("storage: cache miss")
-	// ErrCacheStale means the entry exists but is older than the TTL.
+	// ErrCacheStale means the cache entry exists but is older than the TTL.
 	ErrCacheStale = errors.New("storage: cache stale")
+	// ErrNotFound means a regular (non-cache) row wasn't found —
+	// saved lists, users, etc.
+	ErrNotFound = errors.New("storage: not found")
 )
 
 // Store is the high-level persistence facade. It owns the *sql.DB and a
@@ -237,15 +243,19 @@ func (s *Store) SetUserNMT(ctx context.Context, tgID int64, nmt UserNMT) error {
 
 // SavedList is one persisted program snapshot owned by a user.
 type SavedList struct {
-	ID        int64
-	UserTgID  int64
-	Name      string
-	URL       string
-	Program   *abit.Program
-	CreatedAt time.Time
+	ID         int64
+	UserTgID   int64
+	Name       string
+	URL        string
+	Program    *abit.Program
+	ShareToken string
+	CreatedAt  time.Time
 }
 
 // SaveList persists a program snapshot for tgID and returns its row ID.
+// A random share token is generated server-side and stored alongside the
+// row — callers later use GetSavedListByToken to resolve shared deep-links
+// without exposing the (predictable) numeric id.
 func (s *Store) SaveList(ctx context.Context, tgID int64, name, url string, prog *abit.Program) (int64, error) {
 	if prog == nil {
 		return 0, errors.New("storage: nil program")
@@ -254,9 +264,51 @@ func (s *Store) SaveList(ctx context.Context, tgID int64, name, url string, prog
 	if err != nil {
 		return 0, err
 	}
+	token, err := newShareToken()
+	if err != nil {
+		return 0, fmt.Errorf("storage: token: %w", err)
+	}
 	return s.Queries.SaveList(ctx, db.SaveListParams{
 		UserTgID: tgID, Name: name, URL: url, Data: string(raw),
+		ShareToken: token,
 	})
+}
+
+// GetSavedListByToken resolves a shared list by its opaque token.
+// Returns ErrNotFound when no row matches.
+func (s *Store) GetSavedListByToken(ctx context.Context, token string) (*SavedList, error) {
+	if token == "" {
+		return nil, ErrNotFound
+	}
+	r, err := s.Queries.GetSavedListByToken(ctx, token)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	prog, err := decodeProgram(r.Data)
+	if err != nil {
+		return nil, err
+	}
+	return &SavedList{
+		ID: r.ID, UserTgID: r.UserTgID,
+		Name: r.Name, URL: r.URL,
+		Program:    prog,
+		ShareToken: r.ShareToken,
+		CreatedAt:  time.Unix(r.CreatedAt, 0),
+	}, nil
+}
+
+// newShareToken returns 16 cryptographically-random bytes hex-encoded
+// (32 chars, ~128 bits of entropy). Matches the size of the backfill
+// token from migration 0003.
+func newShareToken() (string, error) {
+	var buf [16]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf[:]), nil
 }
 
 // ListSavedLists returns every saved list for tgID, newest first.
@@ -274,8 +326,9 @@ func (s *Store) ListSavedLists(ctx context.Context, tgID int64) ([]SavedList, er
 		out = append(out, SavedList{
 			ID: r.ID, UserTgID: r.UserTgID,
 			Name: r.Name, URL: r.URL,
-			Program:   prog,
-			CreatedAt: time.Unix(r.CreatedAt, 0),
+			Program:    prog,
+			ShareToken: r.ShareToken,
+			CreatedAt:  time.Unix(r.CreatedAt, 0),
 		})
 	}
 	return out, nil
@@ -285,7 +338,7 @@ func (s *Store) ListSavedLists(ctx context.Context, tgID int64) ([]SavedList, er
 func (s *Store) GetSavedList(ctx context.Context, id int64) (*SavedList, error) {
 	r, err := s.Queries.GetSavedList(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrCacheMiss
+		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
@@ -297,8 +350,9 @@ func (s *Store) GetSavedList(ctx context.Context, id int64) (*SavedList, error) 
 	return &SavedList{
 		ID: r.ID, UserTgID: r.UserTgID,
 		Name: r.Name, URL: r.URL,
-		Program:   prog,
-		CreatedAt: time.Unix(r.CreatedAt, 0),
+		Program:    prog,
+		ShareToken: r.ShareToken,
+		CreatedAt:  time.Unix(r.CreatedAt, 0),
 	}, nil
 }
 

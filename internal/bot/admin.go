@@ -20,10 +20,13 @@ const (
 	fsmKeyBroadcastText           = "text"
 )
 
-// requireAdmin returns nil if the caller is in cfg.AdminIDs. Otherwise
-// a user-visible error that the middleware will render — handlers don't
-// need to do the check twice.
+// requireAdmin returns nil if the caller is in cfg.AdminIDs AND is in a
+// private chat. Group chats are refused regardless of admin status —
+// admin tools touch other users' data, that always stays in DM.
 func (b *Bot) requireAdmin(c tele.Context) error {
+	if !isPrivateChat(c) {
+		return errors.New("адмінська панель доступна лише в особистих повідомленнях")
+	}
 	if !b.cfg.IsAdmin(senderID(c)) {
 		return errors.New("команда доступна тільки адміністраторам")
 	}

@@ -46,30 +46,33 @@ const (
 // --- Command handlers -----------------------------------------------------
 
 func (b *Bot) handleStart(c tele.Context) error {
-	// Deep-link payload format: t.me/<bot>?start=list_<id>
-	if payload := strings.TrimSpace(c.Message().Payload); strings.HasPrefix(payload, "list_") {
-		return b.handleStartListClone(c, payload)
+	payload := strings.TrimSpace(c.Message().Payload)
+	switch {
+	case strings.HasPrefix(payload, "share_"):
+		return b.handleStartShareClone(c, strings.TrimPrefix(payload, "share_"))
+	case strings.HasPrefix(payload, "list_"):
+		// Legacy format from before share tokens existed. Refuse cleanly
+		// instead of resolving — the owner needs to send a fresh link.
+		return errors.New("посилання старого формату вже не діє — попроси нове")
 	}
 	return b.renderMenu(c)
 }
 
-// handleStartListClone clones somebody else's saved list into the
-// current user's /lists and renders it as a fresh summary. The clone
-// keeps its own id (so the original owner's record is untouched) and
-// gets a "Копія:" prefix so the user can tell it apart.
-func (b *Bot) handleStartListClone(c tele.Context, payload string) error {
-	idStr := strings.TrimPrefix(payload, "list_")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
+// handleStartShareClone resolves a share token to its source saved
+// list, copies the snapshot into the current user's /lists, and shows
+// it as if they had just searched. Anyone with the token can clone —
+// that's the point — but tokens are 128-bit random, not enumerable.
+func (b *Bot) handleStartShareClone(c tele.Context, token string) error {
+	if token == "" || len(token) < 16 {
 		return errors.New("некоректне посилання")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
 
-	source, err := b.store.GetSavedList(ctx, id)
+	source, err := b.store.GetSavedListByToken(ctx, token)
 	if err != nil {
-		if errors.Is(err, storage.ErrCacheMiss) {
+		if errors.Is(err, storage.ErrNotFound) {
 			return errors.New("список не знайдено або був видалений")
 		}
 		return err
@@ -79,7 +82,6 @@ func (b *Bot) handleStartListClone(c tele.Context, payload string) error {
 	}
 
 	uid := senderID(c)
-	// trackUser middleware already upserts, but be defensive.
 	if err := b.store.UpsertUser(ctx, uid); err != nil {
 		return err
 	}
@@ -106,9 +108,19 @@ func (b *Bot) handleCancel(c tele.Context) error {
 	return c.Send("🚫 Поточну дію скасовано. /menu — головне меню")
 }
 
-func (b *Bot) handleProfile(c tele.Context) error { return b.renderProfile(c) }
+func (b *Bot) handleProfile(c tele.Context) error {
+	if err := requirePrivateChat(c); err != nil {
+		return err
+	}
+	return b.renderProfile(c)
+}
 
-func (b *Bot) handleLists(c tele.Context) error { return b.renderSavedLists(c) }
+func (b *Bot) handleLists(c tele.Context) error {
+	if err := requirePrivateChat(c); err != nil {
+		return err
+	}
+	return b.renderSavedLists(c)
+}
 
 func (b *Bot) handleSearch(c tele.Context) error {
 	raw := strings.TrimSpace(c.Message().Payload)
@@ -1080,23 +1092,53 @@ func isMaskedName(name string) bool {
 
 // mdEscape escapes characters reserved by Telegram's legacy Markdown.
 // Legacy Markdown is used (not MarkdownV2) — fewer reserved chars,
-// friendlier for Ukrainian punctuation.
+// friendlier for Ukrainian punctuation. The backslash is escaped FIRST
+// so the others' escape sequences aren't double-mangled.
 func mdEscape(s string) string {
 	r := strings.NewReplacer(
+		`\`, `\\`,
 		"*", `\*`,
 		"_", `\_`,
-		"`", "'",
+		"`", "\\`",
 		"[", `\[`,
+		"]", `\]`,
 	)
 	return r.Replace(s)
 }
 
-// looksLikeOsvitaURL is a coarse pre-filter for the OnText catch-all.
-// Strict shape validation happens inside the parser.
+// isPrivateChat reports whether the update came from a 1-on-1 chat.
+// Group/channel chats render to many people, so anything that touches
+// the caller's profile (their NMT, their settings) belongs in a DM.
+func isPrivateChat(c tele.Context) bool {
+	if c == nil || c.Chat() == nil {
+		return false
+	}
+	return c.Chat().Type == tele.ChatPrivate
+}
+
+// requirePrivateChat gates command handlers — returns a friendly error
+// in non-private chats. handleText, which fires implicitly, uses the
+// silent isPrivateChat variant instead.
+func requirePrivateChat(c tele.Context) error {
+	if isPrivateChat(c) {
+		return nil
+	}
+	return errors.New("ця команда працює лише в особистих повідомленнях боту")
+}
+
+// looksLikeOsvitaURL is the pre-filter for the OnText catch-all and
+// /search payload. Strict on host + scheme to avoid spoof domains
+// (e.g. `phishing-osvita.ua`) and SSRF-adjacent shapes.
 func looksLikeOsvitaURL(s string) bool {
 	u, err := url.Parse(s)
 	if err != nil {
 		return false
 	}
-	return strings.HasSuffix(u.Host, "osvita.ua") && strings.Contains(u.Path, "/y")
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return false
+	}
+	if u.Host != "vstup.osvita.ua" {
+		return false
+	}
+	return strings.Contains(u.Path, "/y")
 }

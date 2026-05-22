@@ -19,7 +19,7 @@ func (q *Queries) DeleteSavedList(ctx context.Context, id int64) error {
 }
 
 const getSavedList = `-- name: GetSavedList :one
-SELECT id, user_tg_id, name, url, data, created_at FROM saved_lists WHERE id = ?
+SELECT id, user_tg_id, name, url, data, created_at, share_token FROM saved_lists WHERE id = ?
 `
 
 func (q *Queries) GetSavedList(ctx context.Context, id int64) (SavedList, error) {
@@ -32,12 +32,32 @@ func (q *Queries) GetSavedList(ctx context.Context, id int64) (SavedList, error)
 		&i.URL,
 		&i.Data,
 		&i.CreatedAt,
+		&i.ShareToken,
+	)
+	return i, err
+}
+
+const getSavedListByToken = `-- name: GetSavedListByToken :one
+SELECT id, user_tg_id, name, url, data, created_at, share_token FROM saved_lists WHERE share_token = ?
+`
+
+func (q *Queries) GetSavedListByToken(ctx context.Context, shareToken string) (SavedList, error) {
+	row := q.db.QueryRowContext(ctx, getSavedListByToken, shareToken)
+	var i SavedList
+	err := row.Scan(
+		&i.ID,
+		&i.UserTgID,
+		&i.Name,
+		&i.URL,
+		&i.Data,
+		&i.CreatedAt,
+		&i.ShareToken,
 	)
 	return i, err
 }
 
 const listSavedLists = `-- name: ListSavedLists :many
-SELECT id, user_tg_id, name, url, data, created_at FROM saved_lists
+SELECT id, user_tg_id, name, url, data, created_at, share_token FROM saved_lists
 WHERE user_tg_id = ?
 ORDER BY created_at DESC
 `
@@ -58,6 +78,7 @@ func (q *Queries) ListSavedLists(ctx context.Context, userTgID int64) ([]SavedLi
 			&i.URL,
 			&i.Data,
 			&i.CreatedAt,
+			&i.ShareToken,
 		); err != nil {
 			return nil, err
 		}
@@ -73,16 +94,17 @@ func (q *Queries) ListSavedLists(ctx context.Context, userTgID int64) ([]SavedLi
 }
 
 const saveList = `-- name: SaveList :one
-INSERT INTO saved_lists (user_tg_id, name, url, data)
-VALUES (?, ?, ?, ?)
+INSERT INTO saved_lists (user_tg_id, name, url, data, share_token)
+VALUES (?, ?, ?, ?, ?)
 RETURNING id
 `
 
 type SaveListParams struct {
-	UserTgID int64
-	Name     string
-	URL      string
-	Data     string
+	UserTgID   int64
+	Name       string
+	URL        string
+	Data       string
+	ShareToken string
 }
 
 func (q *Queries) SaveList(ctx context.Context, arg SaveListParams) (int64, error) {
@@ -91,6 +113,7 @@ func (q *Queries) SaveList(ctx context.Context, arg SaveListParams) (int64, erro
 		arg.Name,
 		arg.URL,
 		arg.Data,
+		arg.ShareToken,
 	)
 	var id int64
 	err := row.Scan(&id)

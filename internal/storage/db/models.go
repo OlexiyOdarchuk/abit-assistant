@@ -24,12 +24,13 @@ type ProgramCache struct {
 }
 
 type SavedList struct {
-	ID        int64
-	UserTgID  int64
-	Name      string
-	URL       string
-	Data      string
-	CreatedAt int64
+	ID         int64
+	UserTgID   int64
+	Name       string
+	URL        string
+	Data       string
+	CreatedAt  int64
+	ShareToken string
 }
 
 type User struct {
