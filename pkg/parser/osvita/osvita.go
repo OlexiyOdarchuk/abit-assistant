@@ -383,21 +383,30 @@ func (p *Parser) fetchStatic(ctx context.Context, programURL string) (*abit.Prog
 		}
 	})
 
-	doc.Find(".block-pro-vnz").Each(func(_ int, s *goquery.Selection) {
-		if !strings.Contains(s.Text(), "Ліцензований обсяг") {
+	// Volume / statistics block. osvita renders the numeric table —
+	// "Максимальний обсяг державного замовлення", "Зараховано на бюджет
+	// всього", "Ліцензійний обсяг", "Залишилося невикористаних
+	// ліцензійних місць" and friends — as plain <table><tr><td>k</td>
+	// <td>v</td></tr></table>. The previous parser looked for <b>
+	// children inside .block-pro-vnz, which matched nothing on the
+	// real site and left Volume empty (Analyze then bailed with
+	// ChanceUnknown / "ліцензований обсяг не визначено").
+	//
+	// New approach: scan every two-cell table row in the document and
+	// load it into Volume. abit.Program.BudgetVolume() matches by
+	// substring, so it picks up "Максимальний обсяг…" as the budget
+	// figure regardless of any unrelated stats also present in the table.
+	doc.Find("table tr").Each(func(_ int, tr *goquery.Selection) {
+		tds := tr.Find("td")
+		if tds.Length() != 2 {
 			return
 		}
-		s.Find("b").Each(func(_ int, b *goquery.Selection) {
-			node := b.Get(0)
-			if node.PrevSibling == nil || node.PrevSibling.Type != html.TextNode {
-				return
-			}
-			key := strings.TrimSuffix(strings.TrimSpace(node.PrevSibling.Data), ":")
-			val := strings.TrimSpace(b.Text())
-			if key != "" && val != "" {
-				prog.Volume[key] = val
-			}
-		})
+		key := strings.Join(strings.Fields(tds.Eq(0).Text()), " ")
+		val := strings.Join(strings.Fields(tds.Eq(1).Text()), " ")
+		if key == "" || val == "" {
+			return
+		}
+		prog.Volume[key] = val
 	})
 
 	var js strings.Builder
