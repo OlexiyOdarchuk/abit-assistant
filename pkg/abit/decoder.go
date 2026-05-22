@@ -3,7 +3,6 @@ package abit
 import (
 	"fmt"
 	"strconv"
-	"strings"
 )
 
 // Indices into a RawRequest row (osvita.ua API layout).
@@ -111,10 +110,10 @@ func DecodeRow(p *Program, row RawRequest) (Abiturient, error) {
 	}
 	ab.Status = decodeStatus(p, status, stateEdu)
 	ab.RecType = decodeRecType(p, status, recType, otherReq, priority)
-	ab.Quota = decodeQuotas(row)
+	ab.Quotas = decodeQuotas(row)
 	ab.Coefficients = decodeCoefficients(p, row)
 
-	subj := buildCalcInput(p, &ab, row)
+	subj := buildCalcInput(p, &ab)
 	subj = append(subj, extraCoefficientRows(row)...)
 	if p.EB == 40 && p.K4Max > 0 && hasSubjectForK4(p) && len(subj) > 3 {
 		subj = append(subj, CalcInput{SubjectID: SubjectK4Max, K: p.K4Max})
@@ -163,53 +162,59 @@ func decodeRecType(p *Program, status, recType, otherReq, priority int) string {
 	return ""
 }
 
-func decodeQuotas(row RawRequest) string {
+func decodeQuotas(row RawRequest) []string {
 	out := make([]string, 0, 4)
 	if v, _ := intAt(row, rawIdxQuota1); v > 0 {
-		out = append(out, "КВ1")
+		out = append(out, QuotaKV1)
 	}
 	if v, _ := intAt(row, rawIdxQuota2); v > 0 {
-		out = append(out, "КВ2")
+		out = append(out, QuotaKV2)
 	}
 	if v, _ := intAt(row, rawIdxQuota3); v > 0 {
-		out = append(out, "КВ3")
+		out = append(out, QuotaKV3)
 	}
 	if v, _ := intAt(row, rawIdxInterview); v > 0 {
-		out = append(out, "СБ")
+		out = append(out, QuotaSB)
 	}
-	return strings.Join(out, ", ")
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
-func decodeCoefficients(p *Program, row RawRequest) string {
+func decodeCoefficients(p *Program, row RawRequest) []string {
 	out := make([]string, 0, 7)
 	if v, _ := floatAt(row, rawIdxCoefGK); v > 1 {
-		out = append(out, "ГК")
+		out = append(out, CoefGK)
 	}
 	if v, _ := floatAt(row, rawIdxCoefSK); v > 1 {
-		out = append(out, "СК")
+		out = append(out, CoefSK)
 	}
 	if v, _ := floatAt(row, rawIdxCoefPCHK); v > 0 {
-		out = append(out, "ПЧК")
+		out = append(out, CoefPCHK)
 	}
 	if v, _ := floatAt(row, rawIdxCoefOL); v > 0 {
-		out = append(out, "ОЛ")
+		out = append(out, CoefOL)
 	}
 	if v, _ := floatAt(row, rawIdxCoefKR); v > 0 {
-		out = append(out, "КР")
+		out = append(out, CoefKR)
 	}
 	if p.RK > 1 && p.EB == 40 {
-		out = append(out, "РК")
+		out = append(out, CoefRK)
 	}
 	if v, _ := intAt(row, rawIdxInterview); v > 0 {
-		out = append(out, "СБ")
+		out = append(out, CoefSB)
 	}
-	return strings.Join(out, ", ")
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // buildCalcInput assembles the per-subject input rows for the calculator
 // and, as a side effect, populates ab.DetailScores with the per-subject
 // raw scores keyed by subject name.
-func buildCalcInput(p *Program, ab *Abiturient, row RawRequest) []CalcInput {
+func buildCalcInput(p *Program, ab *Abiturient) []CalcInput {
 	received := p.RequestSubjects[strconv.Itoa(ab.ID)]
 	if len(received) == 0 || len(p.Subjects) == 0 {
 		return nil

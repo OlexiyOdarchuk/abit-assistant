@@ -1,6 +1,7 @@
 package abit
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -109,11 +110,12 @@ func TestDecodeRow_QuotasAndCoefficients(t *testing.T) {
 		1.05, 1.0, 0.05, 0.10, 0.0,
 		1, 0, 1, 0, 0) // interview=1 → СБ
 	ab, _ := DecodeRow(p, r)
-	if ab.Quota != "КВ1, КВ3, СБ" {
-		t.Errorf("Quota: %q", ab.Quota)
+	wantQuotas := []string{QuotaKV1, QuotaKV3, QuotaSB}
+	if !slices.Equal(ab.Quotas, wantQuotas) {
+		t.Errorf("Quotas: got %v, want %v", ab.Quotas, wantQuotas)
 	}
-	if !strings.Contains(ab.Coefficients, "ГК") || !strings.Contains(ab.Coefficients, "ПЧК") {
-		t.Errorf("Coefficients: %q", ab.Coefficients)
+	if !slices.Contains(ab.Coefficients, CoefGK) || !slices.Contains(ab.Coefficients, CoefPCHK) {
+		t.Errorf("Coefficients: %v", ab.Coefficients)
 	}
 }
 

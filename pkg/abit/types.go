@@ -12,8 +12,13 @@ type Abiturient struct {
 	OtherReq       int                `json:"other_req,omitempty"`
 	Name           string             `json:"name"`
 	Status         string             `json:"status"`
-	Quota          string             `json:"quota,omitempty"`
-	Coefficients   string             `json:"coefficients,omitempty"`
+	// Quotas is the list of quota codes the applicant qualifies under
+	// (QuotaKV1, QuotaKV2, QuotaKV3, QuotaSB).
+	Quotas []string `json:"quotas,omitempty"`
+	// Coefficients is the list of bonus-coefficient codes applied to
+	// the applicant's final score (CoefGK, CoefSK, CoefPCHK, CoefOL,
+	// CoefKR, CoefRK, CoefSB).
+	Coefficients   []string           `json:"coefficients,omitempty"`
 	RecType        string             `json:"rec_type,omitempty"`
 	Score          float64            `json:"score"`
 	Documents      bool               `json:"documents"`
