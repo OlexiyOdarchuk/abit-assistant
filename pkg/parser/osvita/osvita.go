@@ -204,8 +204,8 @@ func formValues(year, sid, uid string, last int) url.Values {
 
 // rawChunk is the decoded JSON of one page.
 type rawChunk struct {
-	Requests []abit.RawRequest                   `json:"requests"`
-	Subjects map[string]abit.ApplicantSubjects   `json:"requests_subjects"`
+	Requests []abit.RawRequest                 `json:"requests"`
+	Subjects map[string]abit.ApplicantSubjects `json:"requests_subjects"`
 }
 
 // fetchChunk runs the two-step API dance: POST to get a signed JSON URL,

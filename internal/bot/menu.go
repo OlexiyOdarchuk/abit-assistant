@@ -37,18 +37,29 @@ Open-source бот для абітурієнтів України. Тягне к
 // Unique strings for inline-keyboard buttons. Each handler registers
 // against these so dispatch is type-safe — no magic-string callback data.
 const (
-	btnUniqueMenu              = "menu"
-	btnUniqueSearch            = "search"
-	btnUniqueProfile           = "profile"
-	btnUniqueLists             = "lists"
-	btnUniqueAbout             = "about"
-	btnUniqueDonate            = "donate"
-	btnUniquePagePrev          = "page_prev"
-	btnUniquePageNext          = "page_next"
-	btnUniqueApplicant         = "applicant_view"
-	btnUniqueApplicantHistory  = "applicant_history"
-	btnUniqueBackToList        = "back_to_list"
-	btnUniqueNoop              = "noop"
+	btnUniqueMenu             = "menu"
+	btnUniqueSearch           = "search"
+	btnUniqueProfile          = "profile"
+	btnUniqueLists            = "lists"
+	btnUniqueAbout            = "about"
+	btnUniqueDonate           = "donate"
+	btnUniquePagePrev         = "page_prev"
+	btnUniquePageNext         = "page_next"
+	btnUniqueApplicant        = "applicant_view"
+	btnUniqueApplicantHistory = "applicant_history"
+	btnUniqueBackToList       = "back_to_list"
+	btnUniqueNoop             = "noop"
+
+	// Profile flow.
+	btnUniqueProfileEditNMT       = "p_edit_nmt"
+	btnUniqueProfileSubject       = "p_subj"
+	btnUniqueProfileSubjectDelete = "p_subj_del"
+	btnUniqueProfileQuotas        = "p_quotas"
+	btnUniqueProfileQuotaToggle   = "p_quota_t"
+	btnUniqueProfileRegion        = "p_region"
+	btnUniqueProfileRegionToggle  = "p_region_t"
+	btnUniqueProfileCreative      = "p_creative"
+	btnUniqueProfileBack          = "p_back"
 )
 
 // mainMenuKeyboard builds the inline keyboard shown on /start and /menu.
@@ -72,6 +83,13 @@ func mainMenuKeyboard() *tele.ReplyMarkup {
 func backToMenuKeyboard() *tele.ReplyMarkup {
 	kb := &tele.ReplyMarkup{}
 	kb.Inline(kb.Row(kb.Data("⬅️ Меню", btnUniqueMenu)))
+	return kb
+}
+
+// backToProfileKeyboard for screens nested inside /profile.
+func backToProfileKeyboard() *tele.ReplyMarkup {
+	kb := &tele.ReplyMarkup{}
+	kb.Inline(kb.Row(kb.Data("⬅️ До профілю", btnUniqueProfileBack)))
 	return kb
 }
 

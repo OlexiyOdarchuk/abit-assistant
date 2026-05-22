@@ -6,12 +6,12 @@ package abit
 // Raw data from sources (osvita.ua, edbo.gov.ua, abit-poisk) is shaped into
 // this type by the decoder.
 type Abiturient struct {
-	ID             int                `json:"id"`
-	Num            int                `json:"num"`
-	Priority       int                `json:"priority"`
-	OtherReq       int                `json:"other_req,omitempty"`
-	Name           string             `json:"name"`
-	Status         string             `json:"status"`
+	ID       int    `json:"id"`
+	Num      int    `json:"num"`
+	Priority int    `json:"priority"`
+	OtherReq int    `json:"other_req,omitempty"`
+	Name     string `json:"name"`
+	Status   string `json:"status"`
 	// Quotas is the list of quota codes the applicant qualifies under
 	// (QuotaKV1, QuotaKV2, QuotaKV3, QuotaSB).
 	Quotas []string `json:"quotas,omitempty"`

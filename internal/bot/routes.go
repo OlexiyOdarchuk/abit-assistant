@@ -30,16 +30,25 @@ func (b *Bot) registerRoutes() {
 	// Inline keyboards — every button gets a typed handler keyed on
 	// its Unique string (no fragile callback_data parsing).
 	for unique, h := range map[string]tele.HandlerFunc{
-		btnUniqueMenu:             b.handleMenuCB,
-		btnUniqueSearch:           b.handleSearchCB,
-		btnUniqueProfile:          b.handleProfileCB,
-		btnUniqueLists:            b.handleListsCB,
-		btnUniqueAbout:            b.handleAboutCB,
-		btnUniquePagePrev:         b.handlePagePrev,
-		btnUniquePageNext:         b.handlePageNext,
-		btnUniqueApplicant:        b.handleApplicantView,
-		btnUniqueApplicantHistory: b.handleApplicantHistory,
-		btnUniqueBackToList:       b.handleBackToList,
+		btnUniqueMenu:                 b.handleMenuCB,
+		btnUniqueSearch:               b.handleSearchCB,
+		btnUniqueProfile:              b.handleProfileCB,
+		btnUniqueLists:                b.handleListsCB,
+		btnUniqueAbout:                b.handleAboutCB,
+		btnUniquePagePrev:             b.handlePagePrev,
+		btnUniquePageNext:             b.handlePageNext,
+		btnUniqueApplicant:            b.handleApplicantView,
+		btnUniqueApplicantHistory:     b.handleApplicantHistory,
+		btnUniqueBackToList:           b.handleBackToList,
+		btnUniqueProfileBack:          b.handleProfileBack,
+		btnUniqueProfileEditNMT:       b.handleProfileEditNMT,
+		btnUniqueProfileSubject:       b.handleProfileSubject,
+		btnUniqueProfileSubjectDelete: b.handleProfileSubjectDelete,
+		btnUniqueProfileQuotas:        b.handleProfileQuotas,
+		btnUniqueProfileQuotaToggle:   b.handleProfileQuotaToggle,
+		btnUniqueProfileRegion:        b.handleProfileRegion,
+		btnUniqueProfileRegionToggle:  b.handleProfileRegionToggle,
+		btnUniqueProfileCreative:      b.handleProfileCreative,
 	} {
 		b.tg.Handle(&tele.Btn{Unique: unique}, h)
 	}

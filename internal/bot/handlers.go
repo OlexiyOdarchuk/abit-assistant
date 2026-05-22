@@ -46,10 +46,7 @@ func (b *Bot) handleCancel(c tele.Context) error {
 	return c.Send("🚫 Поточну дію скасовано. /menu — головне меню")
 }
 
-func (b *Bot) handleProfile(c tele.Context) error {
-	return c.Send("👤 *Профіль* — у розробці. Поки можеш одразу аналізувати програми через /search.",
-		tele.ModeMarkdown, backToMenuKeyboard())
-}
+func (b *Bot) handleProfile(c tele.Context) error { return b.renderProfile(c) }
 
 func (b *Bot) handleLists(c tele.Context) error {
 	return c.Send("📂 *Збережені списки* — у розробці.",
@@ -74,8 +71,13 @@ func (b *Bot) handleText(c tele.Context) error {
 		b.log.Warn("fsm get failed", "err", err, "user_id", senderID(c))
 	}
 
-	if state.Name == fsmStateWaitingURL {
+	switch state.Name {
+	case fsmStateWaitingURL:
 		return b.runSearch(c, text)
+	case fsmStateProfileEnterScore:
+		return b.handleProfileEnterScore(c, state.Data)
+	case fsmStateProfileEnterCreative:
+		return b.handleProfileEnterCreative(c)
 	}
 	if looksLikeOsvitaURL(text) {
 		return b.runSearch(c, text)
@@ -88,7 +90,7 @@ func (b *Bot) handleText(c tele.Context) error {
 func (b *Bot) handleMenuCB(c tele.Context) error    { return b.renderMenu(c) }
 func (b *Bot) handleAboutCB(c tele.Context) error   { return b.renderAbout(c) }
 func (b *Bot) handleSearchCB(c tele.Context) error  { return b.askForURL(c) }
-func (b *Bot) handleProfileCB(c tele.Context) error { return b.handleProfile(c) }
+func (b *Bot) handleProfileCB(c tele.Context) error { return b.renderProfile(c) }
 func (b *Bot) handleListsCB(c tele.Context) error   { return b.handleLists(c) }
 
 func (b *Bot) handlePagePrev(c tele.Context) error { return b.flipPage(c, -1) }

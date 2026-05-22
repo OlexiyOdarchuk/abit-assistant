@@ -60,7 +60,7 @@ func TestEnrich_SkipsMaskedNames(t *testing.T) {
 	svc := newEnrichSvc(t, searcher)
 
 	in := []abit.Abiturient{
-		{ID: 1, Name: "Іва###"},                 // masked → no lookup
+		{ID: 1, Name: "Іва###"},                   // masked → no lookup
 		{ID: 2, Name: "Шевченко Т Г", Score: 175}, // real → looked up
 		{ID: 3, Name: "Одинак"},                   // <2 words → masked
 	}

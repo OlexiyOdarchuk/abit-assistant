@@ -9,10 +9,10 @@ import (
 
 func TestParseProgramURL(t *testing.T) {
 	tests := []struct {
-		name              string
-		in                string
-		sid, uid, year    string
-		wantErr           bool
+		name           string
+		in             string
+		sid, uid, year string
+		wantErr        bool
 	}{
 		{
 			name: "canonical",
