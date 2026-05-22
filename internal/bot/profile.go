@@ -17,7 +17,8 @@ import (
 
 // Subjects the profile lets the user enter scores for. Order matches
 // the keyboard rendering — keep semantically grouped:
-// the three required НМТ subjects first, then alternatives.
+// the three required НМТ subjects (abit.RequiredSubjects) first, then
+// alternatives.
 var profileSubjects = []string{
 	"Українська мова",
 	"Математика",
@@ -90,6 +91,8 @@ func (b *Bot) handleProfileEditNMT(c tele.Context) error {
 
 // handleProfileSubject opens a per-subject screen: enter-score prompt
 // for a new subject, or actions (edit / delete) for an existing one.
+// Enforces the "3 required + 1 alternative" rule — adding a 5th subject
+// is refused with a friendly message.
 func (b *Bot) handleProfileSubject(c tele.Context) error {
 	subj := callback.From(c).String(0)
 	if subj == "" || !isKnownSubject(subj) {
@@ -105,6 +108,11 @@ func (b *Bot) handleProfileSubject(c tele.Context) error {
 	}
 	if existing, ok := nmt[subj]; ok {
 		return b.renderSubjectActions(c, subj, existing)
+	}
+	// New subject — enforce the cap.
+	if len(nmt) >= abit.MaxProfileSubjects {
+		return fmt.Errorf("вже введено %d предметів (3 обов'язкових + 1 на вибір) — видали якийсь, щоб обрати інший",
+			abit.MaxProfileSubjects)
 	}
 	return b.askForScore(c, subj)
 }
@@ -338,8 +346,16 @@ func buildProfileView(nmt storage.UserNMT, settings storage.UserSettings) (strin
 		sb.WriteString("   _не заповнено_\n")
 	} else {
 		for _, subj := range sortedKeys(map[string]float64(nmt)) {
-			fmt.Fprintf(&sb, "   • %s: `%g`\n", mdEscape(subj), nmt[subj])
+			marker := ""
+			if abit.IsRequiredSubject(subj) {
+				marker = "🔒 "
+			}
+			fmt.Fprintf(&sb, "   • %s%s: `%g`\n",
+				marker, mdEscape(subj), nmt[subj])
 		}
+	}
+	if status := profileStatus(nmt); status != "" {
+		sb.WriteString("\n" + status + "\n")
 	}
 
 	sb.WriteString("\n⚙️ *Налаштування:*\n")
@@ -366,19 +382,55 @@ func buildProfileView(nmt storage.UserNMT, settings storage.UserSettings) (strin
 	return sb.String(), kb
 }
 
-func buildNMTEditView(nmt storage.UserNMT) (string, *tele.ReplyMarkup) {
-	const intro = `📝 *Бали НМТ*
+// profileStatus returns a single-line summary of the profile's readiness.
+// Empty when nothing has been entered yet — the "не заповнено" line above
+// already covers that case.
+func profileStatus(nmt storage.UserNMT) string {
+	if len(nmt) == 0 {
+		return ""
+	}
+	missing := make([]string, 0, len(abit.RequiredSubjects))
+	for _, r := range abit.RequiredSubjects {
+		if _, ok := nmt[r]; !ok {
+			missing = append(missing, r)
+		}
+	}
+	switch {
+	case len(missing) > 0:
+		return "⚠️ Бракує обов'язкових: " + strings.Join(missing, ", ")
+	case len(nmt) < abit.MaxProfileSubjects:
+		return fmt.Sprintf("⚠️ Додай ще %d-й предмет на вибір", abit.MaxProfileSubjects)
+	case len(nmt) > abit.MaxProfileSubjects:
+		return fmt.Sprintf("⚠️ Введено забагато предметів (треба %d)", abit.MaxProfileSubjects)
+	}
+	return "✅ Профіль готовий — можна шукати /search"
+}
 
-Натисни на предмет, щоб додати або змінити бал.
-` + "`✅`" + ` — вже введений.`
+func buildNMTEditView(nmt storage.UserNMT) (string, *tele.ReplyMarkup) {
+	var sb strings.Builder
+	sb.WriteString("📝 *Бали НМТ*\n\n")
+	fmt.Fprintf(&sb, "Потрібно рівно *%d* предмети: 🔒 3 обов'язкові + 1 на вибір.\n",
+		abit.MaxProfileSubjects)
+	sb.WriteString("Натисни предмет, щоб додати/змінити бал.\n")
+	if status := profileStatus(nmt); status != "" {
+		sb.WriteString("\n" + status)
+	}
 
 	kb := &tele.ReplyMarkup{}
 	rows := make([]tele.Row, 0)
+	// Allocate a fresh slice for each row — see fix commit e89f59a.
 	var row []tele.Btn
 	for _, subj := range profileSubjects {
-		label := subj
-		if _, ok := nmt[subj]; ok {
+		var label string
+		switch {
+		case nmt[subj] > 0 && abit.IsRequiredSubject(subj):
+			label = "✅🔒 " + subj
+		case nmt[subj] > 0:
 			label = "✅ " + subj
+		case abit.IsRequiredSubject(subj):
+			label = "🔒 " + subj
+		default:
+			label = subj
 		}
 		row = append(row, kb.Data(label, btnUniqueProfileSubject, subj))
 		if len(row) == 2 {
@@ -391,7 +443,7 @@ func buildNMTEditView(nmt storage.UserNMT) (string, *tele.ReplyMarkup) {
 	}
 	rows = append(rows, kb.Row(kb.Data("⬅️ До профілю", btnUniqueProfileBack)))
 	kb.Inline(rows...)
-	return intro, kb
+	return sb.String(), kb
 }
 
 func buildQuotasView(active []string) (string, *tele.ReplyMarkup) {

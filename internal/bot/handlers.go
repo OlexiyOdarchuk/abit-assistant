@@ -263,14 +263,22 @@ func (b *Bot) showResultsPage(c tele.Context, rawURL string, page int, mode stri
 		return errors.New("програма знайдена, але список порожній")
 	}
 
-	// User's own competitive rating, computed from their profile НМТ. 0
-	// if profile isn't filled — the view degrades gracefully.
+	// User's own competitive rating, computed from their profile НМТ +
+	// settings. 0 if profile isn't filled — the view degrades gracefully.
 	uid := senderID(c)
 	nmt, err := b.store.GetUserNMT(ctx, uid)
 	if err != nil {
 		b.log.Warn("user nmt read failed", "err", err)
 	}
-	userScore := abit.ComputeRating(prog, map[string]float64(nmt))
+	settings, err := b.store.GetUserSettings(ctx, uid)
+	if err != nil {
+		b.log.Warn("user settings read failed", "err", err)
+	}
+	userScore := abit.ComputeRating(prog, abit.RatingInput{
+		NMT:           map[string]float64(nmt),
+		CreativeScore: float64(settings.CreativeScorePrediction),
+		RegionCoef:    settings.RegionCoef,
+	})
 
 	// Competitors mode degrades to "all" when we can't tell who is who.
 	if mode == modeCompetitors && userScore == 0 {
@@ -305,17 +313,41 @@ func (b *Bot) showResultsPage(c tele.Context, rawURL string, page int, mode stri
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
 }
 
-// filterCompetitors returns applicants with score strictly above mine.
-// Tie-on-score is conservatively counted as "below" for the marker,
-// matching what the UI shows (🟢).
+// filterCompetitors returns applicants that realistically compete with
+// the user for a budget seat, mirroring the Python filter_data logic
+// (minus the abit-poisk recheck which we delegate to enrichSvc).
 func filterCompetitors(abits []abit.Abiturient, mine float64) []abit.Abiturient {
 	out := make([]abit.Abiturient, 0)
 	for _, ab := range abits {
-		if ab.Score > mine {
+		if isCompetitor(ab, mine) {
 			out = append(out, ab)
 		}
 	}
 	return out
+}
+
+// isCompetitor encapsulates the per-applicant decision:
+//   - contract-only applicants don't fight for budget seats
+//   - "деактивовано / скасовано / відмова / відраховано" — out of the race
+//   - "до наказу / рекомендовано" — already occupies a seat, definite
+//     competitor regardless of priority/score
+//   - otherwise: competing only if their score strictly exceeds mine
+//     (priority>1 with score<=mine almost always means they'll pass
+//     elsewhere; ties go to "not competing" — same as Python)
+func isCompetitor(ab abit.Abiturient, mine float64) bool {
+	if !ab.StateEducation {
+		return false
+	}
+	low := strings.ToLower(ab.Status)
+	for _, drop := range []string{"деактивовано", "скасовано", "відмова", "відраховано"} {
+		if strings.Contains(low, drop) {
+			return false
+		}
+	}
+	if strings.Contains(low, "до наказу") || strings.Contains(low, "рекомендовано") {
+		return true
+	}
+	return ab.Score > mine
 }
 
 // viewingState reads the URL, page and mode from FSM. Returns a clear
@@ -428,7 +460,7 @@ func countCompetitors(abits []abit.Abiturient, mine float64) int {
 	}
 	n := 0
 	for _, ab := range abits {
-		if ab.Score > mine {
+		if isCompetitor(ab, mine) {
 			n++
 		}
 	}
@@ -442,7 +474,7 @@ func countCompetitors(abits []abit.Abiturient, mine float64) int {
 func applicantButtonLabel(ab abit.Abiturient, rank int, userScore float64) string {
 	threatMarker := ""
 	if userScore > 0 {
-		if ab.Score > userScore {
+		if isCompetitor(ab, userScore) {
 			threatMarker = "🔴 "
 		} else {
 			threatMarker = "🟢 "
