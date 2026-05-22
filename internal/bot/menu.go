@@ -52,7 +52,14 @@ const (
 	btnUniqueSummary          = "summary"
 	btnUniqueViewList         = "view_list"
 	btnUniqueSaveList         = "save_list"
-	btnUniqueNoop             = "noop"
+
+	// Saved lists.
+	btnUniqueListManage = "l_mng"
+	btnUniqueListView   = "l_view"
+	btnUniqueListDelete = "l_del"
+	btnUniqueListsBack  = "l_back"
+
+	btnUniqueNoop = "noop"
 
 	// Profile flow.
 	btnUniqueProfileEditNMT       = "p_edit_nmt"

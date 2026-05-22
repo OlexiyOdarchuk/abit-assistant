@@ -66,13 +66,13 @@ func (c ChanceLevel) Label() string {
 // be inferred (e.g. licensed volume not scraped).
 type Analysis struct {
 	UserScore        float64     `json:"user_score"`
-	BudgetTotal      int         `json:"budget_total"`       // total budget seats (licensed volume)
-	Quota1Total      int         `json:"quota1_total"`       // seats reserved for Q1
-	Quota2Total      int         `json:"quota2_total"`       // seats reserved for Q2
-	RemainingSpots   int         `json:"remaining_spots"`    // free seats in the general pool
-	AlreadyEnrolled  int         `json:"already_enrolled"`   // applicants on "до наказу/рекомендовано" — they hold seats
-	CompetitorsTotal int         `json:"competitors_total"`  // applicants that pass IsCompetitor
-	MyRealRank       int         `json:"my_real_rank"`       // 1-based rank against real competitors
+	BudgetTotal      int         `json:"budget_total"`      // total budget seats (licensed volume)
+	Quota1Total      int         `json:"quota1_total"`      // seats reserved for Q1
+	Quota2Total      int         `json:"quota2_total"`      // seats reserved for Q2
+	RemainingSpots   int         `json:"remaining_spots"`   // free seats in the general pool
+	AlreadyEnrolled  int         `json:"already_enrolled"`  // applicants on "до наказу/рекомендовано" — they hold seats
+	CompetitorsTotal int         `json:"competitors_total"` // applicants that pass IsCompetitor
+	MyRealRank       int         `json:"my_real_rank"`      // 1-based rank against real competitors
 	Chance           ChanceLevel `json:"chance"`
 	Advice           string      `json:"advice"`
 }

@@ -55,10 +55,7 @@ func (b *Bot) handleCancel(c tele.Context) error {
 
 func (b *Bot) handleProfile(c tele.Context) error { return b.renderProfile(c) }
 
-func (b *Bot) handleLists(c tele.Context) error {
-	return c.Send("📂 *Збережені списки* — у розробці.",
-		tele.ModeMarkdown, backToMenuKeyboard())
-}
+func (b *Bot) handleLists(c tele.Context) error { return b.renderSavedLists(c) }
 
 func (b *Bot) handleSearch(c tele.Context) error {
 	raw := strings.TrimSpace(c.Message().Payload)
@@ -98,7 +95,7 @@ func (b *Bot) handleMenuCB(c tele.Context) error    { return b.renderMenu(c) }
 func (b *Bot) handleAboutCB(c tele.Context) error   { return b.renderAbout(c) }
 func (b *Bot) handleSearchCB(c tele.Context) error  { return b.askForURL(c) }
 func (b *Bot) handleProfileCB(c tele.Context) error { return b.renderProfile(c) }
-func (b *Bot) handleListsCB(c tele.Context) error   { return b.handleLists(c) }
+func (b *Bot) handleListsCB(c tele.Context) error   { return b.renderSavedLists(c) }
 
 func (b *Bot) handlePagePrev(c tele.Context) error { return b.flipPage(c, -1) }
 func (b *Bot) handlePageNext(c tele.Context) error { return b.flipPage(c, +1) }
@@ -151,10 +148,39 @@ func (b *Bot) handleViewListCB(c tele.Context) error {
 	return b.showResultsPage(c, rawURL, page, mode)
 }
 
-// handleSaveListCB is the stub for the (still pending) saved-lists
-// feature. Surfaced via the "💾 Зберегти" button on the summary screen.
+// handleSaveListCB persists the current program snapshot under the user
+// for later retrieval via /lists. Returns a quick toast — no full screen
+// change — so the user can continue browsing.
 func (b *Bot) handleSaveListCB(c tele.Context) error {
-	return errors.New("збереження списків — у розробці")
+	rawURL, _, _, err := b.viewingState(c)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+
+	prog, err := b.programSvc.Fetch(ctx, rawURL)
+	if err != nil {
+		return fmt.Errorf("не вдалося завантажити дані: %w", err)
+	}
+	name := savedListName(prog)
+	if _, err := b.store.SaveList(ctx, senderID(c), name, rawURL, prog); err != nil {
+		return fmt.Errorf("не вдалося зберегти: %w", err)
+	}
+	return c.Respond(&tele.CallbackResponse{
+		Text:      "✅ Збережено в /lists",
+		ShowAlert: false,
+	})
+}
+
+// savedListName builds a stable, trimmed label for the lists view.
+func savedListName(prog *abit.Program) string {
+	name := fmt.Sprintf("%s — %s", prog.UniversityName, prog.ProgramName)
+	if r := []rune(name); len(r) > 80 {
+		name = string(r[:77]) + "…"
+	}
+	return name
 }
 
 // handleApplicantView opens the detail screen for the applicant whose ID
@@ -268,10 +294,9 @@ func (b *Bot) runSearch(c tele.Context, rawURL string) error {
 	return b.showSummary(c, rawURL)
 }
 
-// showSummary renders the analysis screen: user's rating, chance level,
-// counts, verdict. The list of applicants is one click away ("Дивитись
-// список"); the user can also re-open this screen later via the
-// "🎯 Аналіз" button on the list page.
+// showSummary fetches the program (cache-aware) and renders the analysis.
+// Use when triggered by /search or a fresh URL — for already-loaded
+// programs (e.g. saved lists) call renderSummary directly.
 func (b *Bot) showSummary(c tele.Context, rawURL string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
@@ -280,10 +305,20 @@ func (b *Bot) showSummary(c tele.Context, rawURL string) error {
 	if err != nil {
 		return fmt.Errorf("не вдалося отримати дані: %w", err)
 	}
+	return b.renderSummary(c, prog, rawURL)
+}
+
+// renderSummary is the common path: takes an already-loaded Program +
+// the URL it came from, reads the user's profile, computes the rating
+// and analysis, persists FSM, edits the message.
+func (b *Bot) renderSummary(c tele.Context, prog *abit.Program, rawURL string) error {
 	abits := abit.Decode(prog)
 	if len(abits) == 0 {
 		return errors.New("програма знайдена, але список порожній")
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	uid := senderID(c)
 	nmt, err := b.store.GetUserNMT(ctx, uid)
@@ -304,8 +339,6 @@ func (b *Bot) showSummary(c tele.Context, rawURL string) error {
 		UserQuotas: settings.Quotas,
 	})
 
-	// Persist viewing state so subsequent clicks (list, back, etc.)
-	// keep their bearings. Page 0 + mode "all" are the natural defaults.
 	if err := b.fsm.Set(context.Background(), uid, fsmStateViewing, map[string]any{
 		fsmKeyURL:  rawURL,
 		fsmKeyPage: 0,

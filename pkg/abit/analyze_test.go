@@ -165,10 +165,10 @@ func TestAnalyze_QuotaPath_PassesQuota1(t *testing.T) {
 func TestAnalyze_NonCompetitorsExcluded(t *testing.T) {
 	prog := progWithVolume(10, 0, 0)
 	abits := []Abiturient{
-		ab(1, 200, contract),                          // contract — out
+		ab(1, 200, contract), // contract — out
 		ab(2, 195, withStatus("Деактивовано (зарах. на бюджет)")), // gone elsewhere
-		ab(3, 190, withStatus("Скасовано")),           // out
-		ab(4, 180),                                    // genuine competitor
+		ab(3, 190, withStatus("Скасовано")),                       // out
+		ab(4, 180), // genuine competitor
 	}
 	got := Analyze(prog, abits, AnalyzeInput{UserScore: 170})
 	if got.CompetitorsTotal != 1 {
