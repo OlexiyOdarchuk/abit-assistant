@@ -18,6 +18,7 @@ const (
 ` + "`/search <url>`" + ` — швидкий аналіз програми з vstup.osvita.ua
 ` + "`/profile`" + ` — твої НМТ і налаштування
 ` + "`/lists`" + ` — збережені аналізи
+` + "`/admin`" + ` — адмін-панель (доступно тільки адміністраторам)
 ` + "`/about`" + ` — про бот
 ` + "`/cancel`" + ` — вийти з поточного діалогу
 ` + "`/help`" + ` — це повідомлення
@@ -66,6 +67,14 @@ const (
 	btnUniqueListsBack         = "l_back"
 
 	btnUniqueNoop = "noop"
+
+	// Admin panel.
+	btnUniqueAdmin                  = "admin"
+	btnUniqueAdminStats             = "admin_stats"
+	btnUniqueAdminBroadcast         = "admin_bc"
+	btnUniqueAdminBroadcastConfirm  = "admin_bc_yes"
+	btnUniqueAdminBroadcastCancel   = "admin_bc_no"
+	btnUniqueAdminVacuum            = "admin_vacuum"
 
 	// Profile flow.
 	btnUniqueProfileEditNMT       = "p_edit_nmt"

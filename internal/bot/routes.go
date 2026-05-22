@@ -23,6 +23,7 @@ func (b *Bot) registerRoutes() {
 	b.tg.Handle("/search", b.handleSearch)
 	b.tg.Handle("/profile", b.handleProfile)
 	b.tg.Handle("/lists", b.handleLists)
+	b.tg.Handle("/admin", b.handleAdmin)
 
 	// Catch-all text: route to active FSM step or implicit /search.
 	b.tg.Handle(tele.OnText, b.handleText)
@@ -54,6 +55,12 @@ func (b *Bot) registerRoutes() {
 		btnUniqueListDelete:           b.handleListDelete,
 		btnUniqueListDeleteConfirm:    b.handleListDeleteConfirm,
 		btnUniqueListsBack:            b.handleListsBack,
+		btnUniqueAdmin:                b.handleAdminCB,
+		btnUniqueAdminStats:           b.handleAdminStats,
+		btnUniqueAdminBroadcast:       b.handleAdminBroadcast,
+		btnUniqueAdminBroadcastConfirm: b.handleAdminBroadcastConfirm,
+		btnUniqueAdminBroadcastCancel:  b.handleAdminBroadcastCancel,
+		btnUniqueAdminVacuum:          b.handleAdminVacuum,
 		btnUniqueProfileBack:          b.handleProfileBack,
 		btnUniqueProfileEditNMT:       b.handleProfileEditNMT,
 		btnUniqueProfileSubject:       b.handleProfileSubject,

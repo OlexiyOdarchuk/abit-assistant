@@ -135,6 +135,8 @@ func (b *Bot) handleText(c tele.Context) error {
 		return b.handleProfileEnterScore(c, state.Data)
 	case fsmStateProfileEnterCreative:
 		return b.handleProfileEnterCreative(c)
+	case fsmStateAdminBroadcast:
+		return b.handleAdminBroadcastText(c, text)
 	}
 	if looksLikeOsvitaURL(text) {
 		return b.runSearch(c, text)
