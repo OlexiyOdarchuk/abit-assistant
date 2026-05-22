@@ -37,7 +37,7 @@ func TestApplicantService_Search_CacheMissThenHit(t *testing.T) {
 	svc := service.NewApplicantService(src, store, time.Hour)
 
 	ctx := context.Background()
-	got, err := svc.Search(ctx, "Куцелюк Д О")
+	got, err := svc.Search(ctx, "Бовкун О В")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestApplicantService_Search_CacheMissThenHit(t *testing.T) {
 	}
 
 	// Cache hit — source not called.
-	if _, err := svc.Search(ctx, "Куцелюк Д О"); err != nil {
+	if _, err := svc.Search(ctx, "Бовкун О В"); err != nil {
 		t.Fatal(err)
 	}
 	if src.calls.Load() != 1 {

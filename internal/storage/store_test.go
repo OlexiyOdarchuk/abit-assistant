@@ -230,7 +230,7 @@ func TestApplicantCache_FreshAndStale(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 
-	name := "Куцелюк Д О"
+	name := "Бовкун О В"
 	entries := []abit.ApplicantEntry{{Degree: "Б", FullName: name, University: "ЛНУ"}}
 
 	if _, err := s.GetApplicantCache(ctx, name, time.Minute); !errors.Is(err, storage.ErrCacheMiss) {

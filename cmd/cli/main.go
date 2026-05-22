@@ -75,7 +75,7 @@ Commands:
 Examples:
   aa osvita https://vstup.osvita.ua/y2025/r14/282/1471029/
   aa osvita https://... | aa decode
-  aa abitpoisk "Куцелюк Д О"
+  aa abitpoisk "Бовкун О В"
   aa edbo decrypt MnZncVNmOGwva0UxZGFOK1VMTHpHdz09 1 14 2025`)
 }
 

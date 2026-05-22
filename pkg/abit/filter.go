@@ -1,6 +1,39 @@
 package abit
 
-import "slices"
+import (
+	"slices"
+	"strings"
+)
+
+// IsCompetitor reports whether ab realistically competes with someone
+// at userScore for a budget seat. Encodes the heuristic shared by the
+// Python AbitAssistant filter_data and the bot's list view:
+//
+//   - contract-only applicants (StateEducation=false) do not compete
+//   - statuses containing "деактивовано/скасовано/відмова/відраховано"
+//     mean the applicant is out of the race
+//   - statuses "до наказу" or "рекомендовано" → always a competitor
+//     (the seat is already claimed)
+//   - otherwise: competitor iff their score strictly exceeds userScore
+//
+// userScore <= 0 (profile not filled) yields false for every applicant
+// except those already-occupying-a-seat — the caller usually skips the
+// check in that case.
+func IsCompetitor(ab Abiturient, userScore float64) bool {
+	if !ab.StateEducation {
+		return false
+	}
+	low := strings.ToLower(ab.Status)
+	for _, drop := range []string{"деактивовано", "скасовано", "відмова", "відраховано"} {
+		if strings.Contains(low, drop) {
+			return false
+		}
+	}
+	if strings.Contains(low, "до наказу") || strings.Contains(low, "рекомендовано") {
+		return true
+	}
+	return ab.Score > userScore
+}
 
 // FundingFilter selects applicants by their funding type (budget vs
 // contract). FundingAny is the zero value and matches everyone.

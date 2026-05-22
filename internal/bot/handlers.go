@@ -131,6 +131,32 @@ func (b *Bot) handleToggleMode(c tele.Context) error {
 	return b.showResultsPage(c, rawURL, 0, mode)
 }
 
+// handleSummaryCB re-renders the summary screen from the current viewing
+// state. Triggered by the "🎯 Аналіз" button on the list.
+func (b *Bot) handleSummaryCB(c tele.Context) error {
+	rawURL, _, _, err := b.viewingState(c)
+	if err != nil {
+		return err
+	}
+	return b.showSummary(c, rawURL)
+}
+
+// handleViewListCB jumps from summary to the applicants list, restoring
+// the page + mode the user last viewed (page 0, mode "all" on first entry).
+func (b *Bot) handleViewListCB(c tele.Context) error {
+	rawURL, page, mode, err := b.viewingState(c)
+	if err != nil {
+		return err
+	}
+	return b.showResultsPage(c, rawURL, page, mode)
+}
+
+// handleSaveListCB is the stub for the (still pending) saved-lists
+// feature. Surfaced via the "💾 Зберегти" button on the summary screen.
+func (b *Bot) handleSaveListCB(c tele.Context) error {
+	return errors.New("збереження списків — у розробці")
+}
+
 // handleApplicantView opens the detail screen for the applicant whose ID
 // is in callback args.
 func (b *Bot) handleApplicantView(c tele.Context) error {
@@ -239,7 +265,57 @@ func (b *Bot) runSearch(c tele.Context, rawURL string) error {
 	if err := c.Notify(tele.Typing); err != nil {
 		b.log.Debug("notify typing", "err", err)
 	}
-	return b.showResultsPage(c, rawURL, 0, modeAll)
+	return b.showSummary(c, rawURL)
+}
+
+// showSummary renders the analysis screen: user's rating, chance level,
+// counts, verdict. The list of applicants is one click away ("Дивитись
+// список"); the user can also re-open this screen later via the
+// "🎯 Аналіз" button on the list page.
+func (b *Bot) showSummary(c tele.Context, rawURL string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+
+	prog, err := b.programSvc.Fetch(ctx, rawURL)
+	if err != nil {
+		return fmt.Errorf("не вдалося отримати дані: %w", err)
+	}
+	abits := abit.Decode(prog)
+	if len(abits) == 0 {
+		return errors.New("програма знайдена, але список порожній")
+	}
+
+	uid := senderID(c)
+	nmt, err := b.store.GetUserNMT(ctx, uid)
+	if err != nil {
+		b.log.Warn("user nmt read failed", "err", err)
+	}
+	settings, err := b.store.GetUserSettings(ctx, uid)
+	if err != nil {
+		b.log.Warn("user settings read failed", "err", err)
+	}
+	userScore := abit.ComputeRating(prog, abit.RatingInput{
+		NMT:           map[string]float64(nmt),
+		CreativeScore: float64(settings.CreativeScorePrediction),
+		RegionCoef:    settings.RegionCoef,
+	})
+	analysis := abit.Analyze(prog, abits, abit.AnalyzeInput{
+		UserScore:  userScore,
+		UserQuotas: settings.Quotas,
+	})
+
+	// Persist viewing state so subsequent clicks (list, back, etc.)
+	// keep their bearings. Page 0 + mode "all" are the natural defaults.
+	if err := b.fsm.Set(context.Background(), uid, fsmStateViewing, map[string]any{
+		fsmKeyURL:  rawURL,
+		fsmKeyPage: 0,
+		fsmKeyMode: modeAll,
+	}); err != nil {
+		b.log.Warn("fsm set failed", "err", err)
+	}
+
+	text, kb := buildSummaryView(prog, analysis)
+	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
 }
 
 // showResultsPage runs (or re-runs through cache) the program lookup,
@@ -449,8 +525,64 @@ func buildResultsView(prog *abit.Program, view, all []abit.Abiturient, page int,
 		}
 		rows = append(rows, kb.Row(nav...))
 	}
-	rows = append(rows, kb.Row(kb.Data("⬅️ Меню", btnUniqueMenu)))
+	rows = append(rows, kb.Row(
+		kb.Data("🎯 Аналіз", btnUniqueSummary),
+		kb.Data("⬅️ Меню", btnUniqueMenu),
+	))
 	kb.Inline(rows...)
+	return sb.String(), kb
+}
+
+// buildSummaryView renders the per-program analysis screen: user's
+// rating, chance, counts, verdict + actions.
+func buildSummaryView(prog *abit.Program, an abit.Analysis) (string, *tele.ReplyMarkup) {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "🎓 *%s* — %s\n\n",
+		mdEscape(prog.UniversityName), mdEscape(prog.ProgramName))
+
+	if an.UserScore == 0 {
+		sb.WriteString("⚠️ Заповни /profile, щоб побачити аналіз шансів.\n\n")
+		sb.WriteString(fmt.Sprintf("📊 Заявок: *%d*", len(prog.Requests)))
+	} else {
+		fmt.Fprintf(&sb, "🧮 *Твій бал:* `%.3f`\n", an.UserScore)
+		fmt.Fprintf(&sb, "%s *Шанс:* %s\n\n", an.Chance.Emoji(), an.Chance.Label())
+
+		sb.WriteString("📊 *Розклад:*\n")
+		fmt.Fprintf(&sb, "   • Реальних конкурентів: *%d*\n", an.CompetitorsTotal)
+		if an.AlreadyEnrolled > 0 {
+			fmt.Fprintf(&sb, "   • Вже на наказі/рекомендовано: *%d*\n", an.AlreadyEnrolled)
+		}
+		if an.BudgetTotal > 0 {
+			fmt.Fprintf(&sb, "   • Бюджетних місць: *%d*\n", an.BudgetTotal)
+		}
+		if an.Quota1Total > 0 {
+			fmt.Fprintf(&sb, "   • Квота 1: %d місць\n", an.Quota1Total)
+		}
+		if an.Quota2Total > 0 {
+			fmt.Fprintf(&sb, "   • Квота 2: %d місць\n", an.Quota2Total)
+		}
+		fmt.Fprintf(&sb, "   • Вільних місць: *%d*\n", an.RemainingSpots)
+
+		if an.MyRealRank > 0 {
+			fmt.Fprintf(&sb, "\n🏆 *Твоє місце:* %d", an.MyRealRank)
+			if an.BudgetTotal > 0 {
+				fmt.Fprintf(&sb, " (бюджет %d місць)", an.BudgetTotal)
+			}
+			sb.WriteString("\n")
+		}
+		if an.Advice != "" {
+			fmt.Fprintf(&sb, "\n💡 %s", mdEscape(an.Advice))
+		}
+	}
+
+	kb := &tele.ReplyMarkup{}
+	kb.Inline(
+		kb.Row(kb.Data("📋 Дивитись список", btnUniqueViewList)),
+		kb.Row(
+			kb.Data("💾 Зберегти", btnUniqueSaveList),
+			kb.Data("⬅️ Меню", btnUniqueMenu),
+		),
+	)
 	return sb.String(), kb
 }
 

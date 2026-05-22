@@ -93,7 +93,7 @@ real    := abit.RealCompetitors(abits, rating, true)
 
 // 5. abit-poisk lookup
 c := abitpoisk.New(abitpoisk.WithInsecureTLS())
-entries, _ := c.Search(ctx, "Куцелюк Д О")
+entries, _ := c.Search(ctx, "Бовкун О В")
 ```
 
 Усі функції в `pkg/abit/` pure — без I/O. Парсери ходять у мережу, але приймають `context.Context` і безпечні до cancel.
@@ -126,7 +126,7 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o aa-bot ./cmd/bot
 
 ```bash
 go run ./cmd/cli osvita    https://vstup.osvita.ua/y2025/r14/282/1471029/
-go run ./cmd/cli abitpoisk "Куцелюк Д О"
+go run ./cmd/cli abitpoisk "Бовкун О В"
 go run ./cmd/cli osvita ... | go run ./cmd/cli decode
 go run ./cmd/cli edbo decrypt <base64> <n> <prsid> [year]
 ```

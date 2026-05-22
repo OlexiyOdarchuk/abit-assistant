@@ -8,7 +8,7 @@ func TestGenerateAbitPoiskLink(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"surname + two initials", "Куцелюк Д О", "https://abit-poisk.org.ua/#search-Куцелюк+Д+О"},
+		{"surname + two initials", "Бовкун О В", "https://abit-poisk.org.ua/#search-Бовкун+О+В"},
 		{"surname + dotted initials", "Іваненко І. О.", "https://abit-poisk.org.ua/#search-Іваненко+І+О"},
 		{"surname + full name", "Шевченко Тарас Григорович", "https://abit-poisk.org.ua/#search-Шевченко+Т+Г"},
 		{"one word — privacy-masked", "Ма###", ""},

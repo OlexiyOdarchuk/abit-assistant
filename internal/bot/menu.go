@@ -49,6 +49,9 @@ const (
 	btnUniqueApplicantHistory = "applicant_history"
 	btnUniqueBackToList       = "back_to_list"
 	btnUniqueToggleMode       = "toggle_mode"
+	btnUniqueSummary          = "summary"
+	btnUniqueViewList         = "view_list"
+	btnUniqueSaveList         = "save_list"
 	btnUniqueNoop             = "noop"
 
 	// Profile flow.
