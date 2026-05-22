@@ -96,9 +96,9 @@ func (s *EnrichService) Enrich(ctx context.Context, in []abit.Abiturient) []Enri
 	return out
 }
 
-// isMaskedName reports whether the name has been privacy-masked by
-// upstream (osvita.ua renders short names as "Іва###" for applicants
-// who opted out of public listing).
+// isMaskedName reports whether the name was privacy-masked by upstream.
+// Only the explicit "###" pattern counts — a legitimately short name
+// (single surname) is not masked and should reach abit-poisk.
 func isMaskedName(name string) bool {
-	return strings.Contains(name, "###") || len(strings.Fields(name)) < 2
+	return strings.Contains(name, "###")
 }

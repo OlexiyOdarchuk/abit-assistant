@@ -108,3 +108,11 @@ func ComputeRating(prog *Program, in RatingInput) float64 {
 	}
 	return math.Round(rating*1000) / 1000
 }
+
+// RegionCoefRequested reports whether the user asked for the regional
+// coefficient AND the program would actually apply it. False when the
+// scraper couldn't determine RK (the toggle is then a silent no-op,
+// which is worth surfacing in the UI).
+func RegionCoefRequested(prog *Program, in RatingInput) (requested, available bool) {
+	return in.RegionCoef, prog != nil && prog.RK > 1
+}

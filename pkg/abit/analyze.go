@@ -75,6 +75,11 @@ type Analysis struct {
 	MyRealRank       int         `json:"my_real_rank"`      // 1-based rank against real competitors
 	Chance           ChanceLevel `json:"chance"`
 	Advice           string      `json:"advice"`
+
+	// Warnings are non-fatal degradation hints surfaced to the user.
+	// Examples: "RegionCoef requested but RK not parsed", "budget volume
+	// unknown — analysis is qualitative". Empty when everything resolved.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // AnalyzeInput captures the user-facing context the analysis needs.
@@ -149,19 +154,25 @@ func Analyze(prog *Program, abits []Abiturient, in AnalyzeInput) Analysis {
 	out.CompetitorsTotal = len(q1) + len(q2) + len(general) + alreadyEnrolled
 	out.AlreadyEnrolled = alreadyEnrolled
 
-	// Fall back when we don't know the volume — assume one seat per
-	// competitor, so the user can still see a meaningful number.
-	budget := out.BudgetTotal
-	if budget <= 0 {
-		budget = out.CompetitorsTotal + 1
+	// If the volume scraper failed to find a license size, we cannot
+	// honestly compute remaining seats — bail out with Unknown rather
+	// than fabricating a budget that lands every user in "High chance".
+	if out.BudgetTotal <= 0 {
+		out.Chance = ChanceUnknown
+		out.Advice = "Ліцензований обсяг не визначено — точний аналіз шансів недоступний."
+		out.Warnings = append(out.Warnings, "license-volume-missing")
+		// Still surface a rank against the general pool so the user
+		// has SOMETHING — but mark it as informational only.
+		out.MyRealRank = rankByScore(general, in.UserScore)
+		return out
 	}
 
 	q1Taken := minInt(len(q1), out.Quota1Total)
 	q2Taken := minInt(len(q2), out.Quota2Total)
-	generalCap := maxInt(0, budget-q1Taken-q2Taken)
+	generalCap := maxInt(0, out.BudgetTotal-q1Taken-q2Taken)
 	generalTaken := minInt(len(general), generalCap)
 	out.RemainingSpots = maxInt(0,
-		budget-q1Taken-q2Taken-generalTaken-alreadyEnrolled)
+		out.BudgetTotal-q1Taken-q2Taken-generalTaken-alreadyEnrolled)
 
 	// Quota-1 / Quota-2 paths.
 	if slices.Contains(in.UserQuotas, QuotaKV1) {

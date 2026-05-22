@@ -62,21 +62,21 @@ func TestEnrich_SkipsMaskedNames(t *testing.T) {
 	in := []abit.Abiturient{
 		{ID: 1, Name: "Іва###"},                   // masked → no lookup
 		{ID: 2, Name: "Шевченко Т Г", Score: 175}, // real → looked up
-		{ID: 3, Name: "Одинак"},                   // <2 words → masked
+		{ID: 3, Name: "Одинак"},                   // single word — now a valid name, looked up
 	}
 	got := svc.Enrich(context.Background(), in)
 
-	if searcher.calls.Load() != 1 {
-		t.Errorf("expected 1 search call, got %d", searcher.calls.Load())
+	if searcher.calls.Load() != 2 {
+		t.Errorf("expected 2 search calls (masked skipped), got %d", searcher.calls.Load())
 	}
 	if len(got[0].OtherApplications) != 0 || got[0].EnrichError != "" {
-		t.Errorf("[0] should be untouched: %+v", got[0])
+		t.Errorf("[0] masked, should be untouched: %+v", got[0])
 	}
 	if len(got[1].OtherApplications) != 1 {
 		t.Errorf("[1] should have entry: %+v", got[1])
 	}
-	if len(got[2].OtherApplications) != 0 || got[2].EnrichError != "" {
-		t.Errorf("[2] should be untouched: %+v", got[2])
+	if len(got[2].OtherApplications) != 1 {
+		t.Errorf("[2] single-word real name should be looked up: %+v", got[2])
 	}
 }
 

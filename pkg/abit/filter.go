@@ -31,11 +31,12 @@ func IsCompetitorWith(ab Abiturient, userScore float64, overrides OverrideMap) b
 //     mean the applicant is out of the race
 //   - statuses "до наказу" or "рекомендовано" → always a competitor
 //     (the seat is already claimed)
-//   - otherwise: competitor iff their score strictly exceeds userScore
+//   - otherwise: competitor iff their score is ≥ userScore. The Python
+//     mirror used `score < userScore → drop`, so tie scores count as
+//     competitors (they share queue position with the user).
 //
-// userScore <= 0 (profile not filled) yields false for every applicant
-// except those already-occupying-a-seat — the caller usually skips the
-// check in that case.
+// userScore ≤ 0 (profile not filled) keeps everybody alive past the
+// score check, so the caller usually skips IsCompetitor in that case.
 func IsCompetitor(ab Abiturient, userScore float64) bool {
 	if !ab.StateEducation {
 		return false
@@ -49,7 +50,7 @@ func IsCompetitor(ab Abiturient, userScore float64) bool {
 	if strings.Contains(low, "до наказу") || strings.Contains(low, "рекомендовано") {
 		return true
 	}
-	return ab.Score > userScore
+	return ab.Score >= userScore
 }
 
 // FundingFilter selects applicants by their funding type (budget vs

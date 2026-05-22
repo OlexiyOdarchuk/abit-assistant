@@ -158,11 +158,34 @@ func (b *Bot) handleText(c tele.Context) error {
 
 // --- Callback handlers ----------------------------------------------------
 
-func (b *Bot) handleMenuCB(c tele.Context) error    { return b.renderMenu(c) }
-func (b *Bot) handleAboutCB(c tele.Context) error   { return b.renderAbout(c) }
-func (b *Bot) handleSearchCB(c tele.Context) error  { return b.askForURL(c) }
-func (b *Bot) handleProfileCB(c tele.Context) error { return b.renderProfile(c) }
-func (b *Bot) handleListsCB(c tele.Context) error   { return b.renderSavedLists(c) }
+// Top-level navigation buttons. Each clears any in-flight FSM state so
+// a user who taps "⬅️ Меню" while mid-input doesn't have their next
+// free-text message hijacked by a stale handler (admin broadcast, NMT
+// score entry, creative score, URL prompt).
+func (b *Bot) handleMenuCB(c tele.Context) error    { b.clearTransientFSM(c); return b.renderMenu(c) }
+func (b *Bot) handleAboutCB(c tele.Context) error   { b.clearTransientFSM(c); return b.renderAbout(c) }
+func (b *Bot) handleSearchCB(c tele.Context) error  { b.clearTransientFSM(c); return b.askForURL(c) }
+func (b *Bot) handleProfileCB(c tele.Context) error { b.clearTransientFSM(c); return b.renderProfile(c) }
+func (b *Bot) handleListsCB(c tele.Context) error   { b.clearTransientFSM(c); return b.renderSavedLists(c) }
+
+// clearTransientFSM wipes any text-waiting FSM state — admin.broadcast.*,
+// profile.enter_*, search.waiting_url. Persistent "viewing" state is
+// kept (deeper screens like Detail/History need to come back to it).
+func (b *Bot) clearTransientFSM(c tele.Context) {
+	uid := senderID(c)
+	if uid == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	state, err := b.fsm.Get(ctx, uid)
+	if err != nil || state.Name == "" || state.Name == fsmStateViewing {
+		return
+	}
+	if err := b.fsm.Clear(context.Background(), uid); err != nil {
+		b.log.Warn("clear transient fsm", "err", err)
+	}
+}
 
 func (b *Bot) handlePagePrev(c tele.Context) error { return b.flipPage(c, -1) }
 func (b *Bot) handlePageNext(c tele.Context) error { return b.flipPage(c, +1) }
@@ -536,6 +559,13 @@ func (b *Bot) renderSummary(c tele.Context, prog *abit.Program, rawURL string) e
 		UserQuotas: settings.Quotas,
 		Overrides:  overrides,
 	})
+	// If the user requested RegionCoef but the source has no usable RK,
+	// the multiplication silently skipped. Surface that to avoid the
+	// "I turned on РК but my score didn't change" confusion.
+	if reqd, avail := abit.RegionCoefRequested(prog, abit.RatingInput{RegionCoef: settings.RegionCoef}); reqd && !avail {
+		analysis.Warnings = append(analysis.Warnings,
+			"region-coef-unavailable")
+	}
 
 	data := map[string]any{
 		fsmKeyURL:  rawURL,
@@ -813,6 +843,14 @@ func buildSummaryView(prog *abit.Program, an abit.Analysis) (string, *tele.Reply
 		if an.Advice != "" {
 			fmt.Fprintf(&sb, "\n💡 %s", mdEscape(an.Advice))
 		}
+		for _, w := range an.Warnings {
+			switch w {
+			case "license-volume-missing":
+				sb.WriteString("\n⚠️ Ліцензований обсяг не вдалося розпарсити — місце вище — оцінка лише за рангом.")
+			case "region-coef-unavailable":
+				sb.WriteString("\n⚠️ Регіональний коефіцієнт увімкнено в профілі, але джерело його не вказало — бал не множиться.")
+			}
+		}
 	}
 
 	kb := &tele.ReplyMarkup{}
@@ -906,7 +944,9 @@ func buildApplicantDetail(ab abit.Abiturient, userScore float64, overrides abit.
 	if len(ab.Coefficients) > 0 {
 		fmt.Fprintf(&sb, "⚙️ *Коефіцієнти:* %s\n", strings.Join(ab.Coefficients, ", "))
 	}
-	if ab.OtherReq > 0 {
+	// OtherReq makes sense only when paired with a RecType — without it
+	// the bare "Інший пріоритет: N" looks like noise to the user.
+	if ab.OtherReq > 0 && ab.RecType != "" {
 		fmt.Fprintf(&sb, "🔀 *Інший пріоритет:* %d\n", ab.OtherReq)
 	}
 
@@ -1082,11 +1122,13 @@ func sortedKeys(m map[string]float64) []string {
 	return out
 }
 
-// isMaskedName reports whether the upstream privacy-masked the applicant
-// name (e.g. "Іва###" or a single word). Mirrors the same check used by
-// the enrich service.
+// isMaskedName reports whether upstream privacy-masked the applicant
+// name. osvita.ua replaces consenting-out applicants with "Іва###"
+// patterns — that's the only signal worth treating as masked. A single-
+// token name (e.g. legitimately just a surname) is a valid real name
+// and should NOT be blocked from abit-poisk lookups.
 func isMaskedName(name string) bool {
-	return strings.Contains(name, "###") || len(strings.Fields(name)) < 2
+	return strings.Contains(name, "###")
 }
 
 // mdEscape escapes characters reserved by Telegram's legacy Markdown.

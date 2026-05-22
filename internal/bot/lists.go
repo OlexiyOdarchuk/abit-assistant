@@ -340,6 +340,12 @@ func buildRefreshDiffView(id int64, name string, oldAt, newAt time.Time, oldA, n
 	fmt.Fprintf(&sb, "📅 Стало: `%s`\n\n", newAt.Format("2006-01-02 15:04"))
 
 	sb.WriteString("📊 *Зміни:*\n")
+	// User-score line — usually identical, but flags when the profile
+	// changed between snapshots (e.g. RK toggled, new subject score).
+	if oldA.UserScore != newA.UserScore {
+		fmt.Fprintf(&sb, "🧮 Твій бал: `%.3f` → `%.3f`\n",
+			oldA.UserScore, newA.UserScore)
+	}
 	fmt.Fprintf(&sb, "%s\n", diffLine("Конкурентів",
 		oldA.CompetitorsTotal, newA.CompetitorsTotal, true))
 	fmt.Fprintf(&sb, "%s\n", diffLine("На наказі",
