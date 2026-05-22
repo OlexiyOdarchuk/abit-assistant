@@ -1,0 +1,33 @@
+# docker compose up -d   — run the bot in the background
+# docker compose logs -f — follow its JSON logs
+# docker compose down    — stop (data/ stays around)
+
+services:
+  bot:
+    build:
+      context: .
+      args:
+        VERSION: "3.0-compose"
+    image: abit-assistant:local
+    container_name: abit-assistant
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Inside the container the bot writes to /data/abit.db.
+      DATABASE_PATH: /data/abit.db
+    volumes:
+      # Host-side persistence; survives `docker compose down`.
+      - ./data:/data
+    # No ports — the bot uses long-polling, nothing to expose.
+    # Tighten Docker defaults: drop capabilities, no privilege escalation,
+    # read-only rootfs (the only writable path is the /data volume).
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    # Resource hints so a runaway broadcast can't eat the host.
+    deploy:
+      resources:
+        limits:
+          memory: 256M

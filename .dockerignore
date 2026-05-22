@@ -1,0 +1,32 @@
+# Keep the build context small — only the Go source and module files
+# need to land in the build stage. Anything below speeds up `docker
+# build` and avoids leaking local junk into image layers.
+
+# VCS / IDE
+.git/
+.idea/
+.vscode/
+
+# Local environment + secrets
+.env
+.env.local
+
+# Local DB files (these go into the /data volume at runtime)
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Build artifacts
+bin/
+aa
+aa-bot
+bot
+abit-assistant
+*.test
+*.out
+coverage.txt
+
+# Editor backups
+*.gfo
+*~
