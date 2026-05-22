@@ -96,3 +96,17 @@ func (q *Queries) SaveList(ctx context.Context, arg SaveListParams) (int64, erro
 	err := row.Scan(&id)
 	return id, err
 }
+
+const updateSavedListData = `-- name: UpdateSavedListData :exec
+UPDATE saved_lists SET data = ?2 WHERE id = ?1
+`
+
+type UpdateSavedListDataParams struct {
+	ID   int64
+	Data string
+}
+
+func (q *Queries) UpdateSavedListData(ctx context.Context, arg UpdateSavedListDataParams) error {
+	_, err := q.db.ExecContext(ctx, updateSavedListData, arg.ID, arg.Data)
+	return err
+}

@@ -11,5 +11,8 @@ ORDER BY created_at DESC;
 -- name: GetSavedList :one
 SELECT * FROM saved_lists WHERE id = ?;
 
+-- name: UpdateSavedListData :exec
+UPDATE saved_lists SET data = ?2 WHERE id = ?1;
+
 -- name: DeleteSavedList :exec
 DELETE FROM saved_lists WHERE id = ?;

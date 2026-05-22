@@ -54,10 +54,14 @@ const (
 	btnUniqueSaveList         = "save_list"
 
 	// Saved lists.
-	btnUniqueListManage = "l_mng"
-	btnUniqueListView   = "l_view"
-	btnUniqueListDelete = "l_del"
-	btnUniqueListsBack  = "l_back"
+	btnUniqueListManage        = "l_mng"
+	btnUniqueListView          = "l_view"
+	btnUniqueListRefresh       = "l_refresh"
+	btnUniqueListShare         = "l_share"
+	btnUniqueListExport        = "l_export"
+	btnUniqueListDelete        = "l_del"
+	btnUniqueListDeleteConfirm = "l_del_yes"
+	btnUniqueListsBack         = "l_back"
 
 	btnUniqueNoop = "noop"
 

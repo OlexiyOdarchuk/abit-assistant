@@ -13,6 +13,7 @@ import (
 	tele "gopkg.in/telebot.v3"
 
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/bot/callback"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
 	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
 )
 
@@ -41,7 +42,56 @@ const (
 
 // --- Command handlers -----------------------------------------------------
 
-func (b *Bot) handleStart(c tele.Context) error { return b.renderMenu(c) }
+func (b *Bot) handleStart(c tele.Context) error {
+	// Deep-link payload format: t.me/<bot>?start=list_<id>
+	if payload := strings.TrimSpace(c.Message().Payload); strings.HasPrefix(payload, "list_") {
+		return b.handleStartListClone(c, payload)
+	}
+	return b.renderMenu(c)
+}
+
+// handleStartListClone clones somebody else's saved list into the
+// current user's /lists and renders it as a fresh summary. The clone
+// keeps its own id (so the original owner's record is untouched) and
+// gets a "Копія:" prefix so the user can tell it apart.
+func (b *Bot) handleStartListClone(c tele.Context, payload string) error {
+	idStr := strings.TrimPrefix(payload, "list_")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		return errors.New("некоректне посилання")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+
+	source, err := b.store.GetSavedList(ctx, id)
+	if err != nil {
+		if errors.Is(err, storage.ErrCacheMiss) {
+			return errors.New("список не знайдено або був видалений")
+		}
+		return err
+	}
+	if source.Program == nil {
+		return errors.New("список пошкоджений")
+	}
+
+	uid := senderID(c)
+	// trackUser middleware already upserts, but be defensive.
+	if err := b.store.UpsertUser(ctx, uid); err != nil {
+		return err
+	}
+	name := "Копія: " + source.Name
+	if _, err := b.store.SaveList(ctx, uid, name, source.URL, source.Program); err != nil {
+		return fmt.Errorf("не вдалося зберегти копію: %w", err)
+	}
+
+	intro := fmt.Sprintf("📥 Отримано спільний аналіз: *%s*\nЗбережено в /lists.",
+		mdEscape(source.Name))
+	if err := c.Send(intro, tele.ModeMarkdown); err != nil {
+		return err
+	}
+	return b.renderSummary(c, source.Program, source.URL)
+}
 func (b *Bot) handleMenu(c tele.Context) error  { return b.renderMenu(c) }
 func (b *Bot) handleHelp(c tele.Context) error  { return c.Send(helpText, tele.ModeMarkdown) }
 func (b *Bot) handleAbout(c tele.Context) error { return b.renderAbout(c) }

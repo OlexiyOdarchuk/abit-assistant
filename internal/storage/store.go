@@ -307,6 +307,22 @@ func (s *Store) DeleteSavedList(ctx context.Context, id int64) error {
 	return s.Queries.DeleteSavedList(ctx, id)
 }
 
+// UpdateSavedListProgram replaces the program snapshot of an existing
+// saved list — used by /lists refresh to swap stale data with a fresh
+// fetch without changing the list's id or created_at.
+func (s *Store) UpdateSavedListProgram(ctx context.Context, id int64, prog *abit.Program) error {
+	if prog == nil {
+		return errors.New("storage: nil program")
+	}
+	raw, err := json.Marshal(prog)
+	if err != nil {
+		return err
+	}
+	return s.Queries.UpdateSavedListData(ctx, db.UpdateSavedListDataParams{
+		ID: id, Data: string(raw),
+	})
+}
+
 // -----------------------------------------------------------------------
 // Caches (with TTL applied at read time)
 // -----------------------------------------------------------------------
