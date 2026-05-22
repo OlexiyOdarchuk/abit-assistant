@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"fmt"
 	"runtime/debug"
 	"time"
 
@@ -70,16 +71,21 @@ func (b *Bot) reportErrors(next tele.HandlerFunc) tele.HandlerFunc {
 }
 
 // trackUser is middleware that ensures the user row exists and bumps the
-// activates counter. Storage failures never break the user flow.
+// activates counter. Failure here is fatal to the request because every
+// downstream FSM / saved-lists write has a foreign-key reference to
+// users(tg_id) — letting the request continue past a failed Upsert
+// guarantees an obscure FK error a few stack-frames deeper.
 func (b *Bot) trackUser(next tele.HandlerFunc) tele.HandlerFunc {
 	return func(c tele.Context) error {
 		uid := senderID(c)
-		if uid != 0 {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			if err := b.store.Queries.IncrementActivates(ctx, uid); err != nil {
-				b.log.Warn("user track failed", "err", err, "user_id", uid)
-			}
-			cancel()
+		if uid == 0 {
+			return next(c)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := b.store.Queries.IncrementActivates(ctx, uid); err != nil {
+			b.log.Warn("user track failed", "err", err, "user_id", uid)
+			return fmt.Errorf("сервер тимчасово зайнятий — спробуй ще раз: %w", err)
 		}
 		return next(c)
 	}

@@ -78,13 +78,18 @@ func Open(ctx context.Context, path string) (*Store, error) {
 func (s *Store) Close() error { return s.DB.Close() }
 
 func buildDSN(path string) (string, error) {
+	// busy_timeout makes SQLite block briefly on contended writes
+	// instead of returning SQLITE_BUSY immediately — even though we
+	// pin MaxOpenConns=1, reads share the same pool and can race
+	// against the writer's lock under load.
+	const pragmas = "_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
 	if path == ":memory:" {
-		return "file::memory:?cache=shared&_pragma=foreign_keys(1)", nil
+		return "file::memory:?cache=shared&" + pragmas, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", fmt.Errorf("storage: mkdir: %w", err)
 	}
-	return fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)", path), nil
+	return fmt.Sprintf("file:%s?%s&_pragma=journal_mode(WAL)", path, pragmas), nil
 }
 
 func applyMigrations(ctx context.Context, sqlDB *sql.DB) error {

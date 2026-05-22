@@ -12,6 +12,8 @@ import (
 	"log/slog"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
 	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
 	"github.com/OlexiyOdarchuk/abit-assistant/pkg/parser"
@@ -21,14 +23,16 @@ import (
 // of program X". It transparently caches Program snapshots from a
 // parser.Source through the storage layer.
 //
-// Threading: safe for concurrent use; the underlying storage and parser
-// implementations are expected to be concurrency-safe (current osvita and
-// abit-poisk implementations are).
+// Threading: safe for concurrent use. A singleflight group dedupes
+// concurrent Refresh requests for the same URL, so a viral list-share
+// doesn't fire N parallel osvita scrapes — first caller fetches, the
+// rest wait for the same result.
 type ProgramService struct {
-	src   parser.Source
-	store *storage.Store
-	ttl   time.Duration
-	log   *slog.Logger
+	src    parser.Source
+	store  *storage.Store
+	ttl    time.Duration
+	log    *slog.Logger
+	flight singleflight.Group
 }
 
 // NewProgramService wires a service with the given source and store.
@@ -68,16 +72,24 @@ func (s *ProgramService) Fetch(ctx context.Context, url string) (*abit.Program, 
 
 // Refresh bypasses the cache and always fetches a fresh copy from the
 // source, writing it back into the cache. Useful for admin "force
-// refresh" commands.
+// refresh" commands. Concurrent callers for the same URL share a single
+// in-flight parse via singleflight — saves bandwidth and avoids
+// rate-limit at the source.
 func (s *ProgramService) Refresh(ctx context.Context, url string) (*abit.Program, error) {
-	prog, err := s.src.Parse(ctx, url)
+	v, err, _ := s.flight.Do(url, func() (any, error) {
+		prog, err := s.src.Parse(ctx, url)
+		if err != nil {
+			return nil, fmt.Errorf("program: parse: %w", err)
+		}
+		if err := s.store.PutProgramCache(ctx, url, prog); err != nil {
+			s.log.WarnContext(ctx, "cache write failed", "err", err, "url", url)
+		}
+		return prog, nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("program: parse: %w", err)
+		return nil, err
 	}
-	if err := s.store.PutProgramCache(ctx, url, prog); err != nil {
-		s.log.WarnContext(ctx, "cache write failed", "err", err, "url", url)
-	}
-	return prog, nil
+	return v.(*abit.Program), nil
 }
 
 // FetchDecoded returns the program already decoded into []Abiturient.
