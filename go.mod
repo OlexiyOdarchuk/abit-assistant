@@ -5,6 +5,8 @@ go 1.26.3
 require (
 	github.com/PuerkitoBio/goquery v1.12.0
 	golang.org/x/net v0.52.0
+	gopkg.in/telebot.v3 v3.3.8
+	modernc.org/sqlite v1.50.1
 )
 
 require (
@@ -18,5 +20,4 @@ require (
 	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.50.1 // indirect
 )
