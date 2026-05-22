@@ -30,6 +30,13 @@ const (
 const (
 	fsmKeyURL  = "url"
 	fsmKeyPage = "page"
+	fsmKeyMode = "mode"
+)
+
+// Search list display modes — toggled by the user from the results page.
+const (
+	modeAll         = "all"
+	modeCompetitors = "competitors"
 )
 
 // --- Command handlers -----------------------------------------------------
@@ -97,7 +104,7 @@ func (b *Bot) handlePagePrev(c tele.Context) error { return b.flipPage(c, -1) }
 func (b *Bot) handlePageNext(c tele.Context) error { return b.flipPage(c, +1) }
 
 func (b *Bot) flipPage(c tele.Context, delta int) error {
-	rawURL, curPage, err := b.viewingState(c)
+	rawURL, curPage, mode, err := b.viewingState(c)
 	if err != nil {
 		return err
 	}
@@ -106,7 +113,22 @@ func (b *Bot) flipPage(c tele.Context, delta int) error {
 		// Use the page baked into the button — defends against state drift.
 		curPage = v
 	}
-	return b.showResultsPage(c, rawURL, curPage+delta)
+	return b.showResultsPage(c, rawURL, curPage+delta, mode)
+}
+
+// handleToggleMode flips the list between "all" and "competitors", then
+// jumps back to page 0 so the user always sees fresh first-page results.
+func (b *Bot) handleToggleMode(c tele.Context) error {
+	rawURL, _, mode, err := b.viewingState(c)
+	if err != nil {
+		return err
+	}
+	if mode == modeCompetitors {
+		mode = modeAll
+	} else {
+		mode = modeCompetitors
+	}
+	return b.showResultsPage(c, rawURL, 0, mode)
 }
 
 // handleApplicantView opens the detail screen for the applicant whose ID
@@ -116,7 +138,7 @@ func (b *Bot) handleApplicantView(c tele.Context) error {
 	if !ok {
 		return errors.New("втрачено ID абітурієнта")
 	}
-	rawURL, _, err := b.viewingState(c)
+	rawURL, _, _, err := b.viewingState(c)
 	if err != nil {
 		return err
 	}
@@ -143,7 +165,7 @@ func (b *Bot) handleApplicantHistory(c tele.Context) error {
 	if !ok {
 		return errors.New("втрачено ID абітурієнта")
 	}
-	rawURL, _, err := b.viewingState(c)
+	rawURL, _, _, err := b.viewingState(c)
 	if err != nil {
 		return err
 	}
@@ -178,11 +200,11 @@ func (b *Bot) handleApplicantHistory(c tele.Context) error {
 // detail screen. The page index lives in FSM, so this works even after a
 // bot restart.
 func (b *Bot) handleBackToList(c tele.Context) error {
-	rawURL, page, err := b.viewingState(c)
+	rawURL, page, mode, err := b.viewingState(c)
 	if err != nil {
 		return err
 	}
-	return b.showResultsPage(c, rawURL, page)
+	return b.showResultsPage(c, rawURL, page, mode)
 }
 
 // --- Shared rendering -----------------------------------------------------
@@ -217,14 +239,18 @@ func (b *Bot) runSearch(c tele.Context, rawURL string) error {
 	if err := c.Notify(tele.Typing); err != nil {
 		b.log.Debug("notify typing", "err", err)
 	}
-	return b.showResultsPage(c, rawURL, 0)
+	return b.showResultsPage(c, rawURL, 0, modeAll)
 }
 
-// showResultsPage runs (or re-runs through cache) the program lookup
-// and renders the requested page in place. Persists FSM so deeper
-// screens (detail, history) and pagination buttons know which URL +
-// page they're attached to.
-func (b *Bot) showResultsPage(c tele.Context, rawURL string, page int) error {
+// showResultsPage runs (or re-runs through cache) the program lookup,
+// computes the user's own rating, and renders the requested page of
+// either ALL applicants or just the competitors (score > user rating).
+// Persists FSM so deeper screens (detail, history) and pagination
+// buttons know which URL + page + mode they're attached to.
+func (b *Bot) showResultsPage(c tele.Context, rawURL string, page int, mode string) error {
+	if mode != modeAll && mode != modeCompetitors {
+		mode = modeAll
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
 
@@ -237,49 +263,95 @@ func (b *Bot) showResultsPage(c tele.Context, rawURL string, page int) error {
 		return errors.New("програма знайдена, але список порожній")
 	}
 
+	// User's own competitive rating, computed from their profile НМТ. 0
+	// if profile isn't filled — the view degrades gracefully.
+	uid := senderID(c)
+	nmt, err := b.store.GetUserNMT(ctx, uid)
+	if err != nil {
+		b.log.Warn("user nmt read failed", "err", err)
+	}
+	userScore := abit.ComputeRating(prog, map[string]float64(nmt))
+
+	// Competitors mode degrades to "all" when we can't tell who is who.
+	if mode == modeCompetitors && userScore == 0 {
+		mode = modeAll
+	}
+
+	view := abits
+	if mode == modeCompetitors {
+		view = filterCompetitors(abits, userScore)
+	}
+	if len(view) == 0 {
+		// e.g. user is at the top of the field with no one to outrank
+		view = abits
+		mode = modeAll
+	}
+
 	if page < 0 {
 		page = 0
 	}
-	maxPage := (len(abits) - 1) / pageSize
+	maxPage := (len(view) - 1) / pageSize
 	page = min(page, maxPage)
 
-	if err := b.fsm.Set(context.Background(), senderID(c), fsmStateViewing, map[string]any{
+	if err := b.fsm.Set(context.Background(), uid, fsmStateViewing, map[string]any{
 		fsmKeyURL:  rawURL,
 		fsmKeyPage: page,
+		fsmKeyMode: mode,
 	}); err != nil {
 		b.log.Warn("fsm set failed", "err", err)
 	}
 
-	text, kb := buildResultsView(prog, abits, page)
+	text, kb := buildResultsView(prog, view, abits, page, userScore, mode)
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
 }
 
-// viewingState reads the URL + current page from FSM for the user.
-// Returns a clear error message if the user is not in the search.viewing
-// state — handlers should propagate this to the user as-is.
-func (b *Bot) viewingState(c tele.Context) (rawURL string, page int, err error) {
+// filterCompetitors returns applicants with score strictly above mine.
+// Tie-on-score is conservatively counted as "below" for the marker,
+// matching what the UI shows (🟢).
+func filterCompetitors(abits []abit.Abiturient, mine float64) []abit.Abiturient {
+	out := make([]abit.Abiturient, 0)
+	for _, ab := range abits {
+		if ab.Score > mine {
+			out = append(out, ab)
+		}
+	}
+	return out
+}
+
+// viewingState reads the URL, page and mode from FSM. Returns a clear
+// error if the user is not in the search.viewing state — handlers
+// should propagate this to the user as-is.
+func (b *Bot) viewingState(c tele.Context) (rawURL string, page int, mode string, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	state, err := b.fsm.Get(ctx, senderID(c))
 	if err != nil {
-		return "", 0, fmt.Errorf("не вдалося прочитати стан: %w", err)
+		return "", 0, "", fmt.Errorf("не вдалося прочитати стан: %w", err)
 	}
 	if state.Name != fsmStateViewing {
-		return "", 0, errors.New("сесію переглядання втрачено — почни з /search")
+		return "", 0, "", errors.New("сесію переглядання втрачено — почни з /search")
 	}
 	rawURL = state.Get(fsmKeyURL)
 	if p, ok := state.Data[fsmKeyPage].(float64); ok {
 		page = int(p)
 	}
-	return rawURL, page, nil
+	mode, _ = state.Data[fsmKeyMode].(string)
+	if mode == "" {
+		mode = modeAll
+	}
+	return rawURL, page, mode, nil
 }
 
 // --- View builders --------------------------------------------------------
 
 // buildResultsView renders the program header as text + a grid of inline
-// buttons (10 applicants per page) + pagination + back-to-menu.
-func buildResultsView(prog *abit.Program, abits []abit.Abiturient, page int) (string, *tele.ReplyMarkup) {
-	total := len(abits)
+// buttons (10 applicants per page) + pagination + mode toggle + menu.
+//
+// `view` is the (possibly filtered) slice the page is sliced from;
+// `all` is the unfiltered list, used only for the competitor count
+// shown in the header.
+func buildResultsView(prog *abit.Program, view, all []abit.Abiturient, page int, userScore float64, mode string) (string, *tele.ReplyMarkup) {
+	total := len(view)
 	maxPage := (total - 1) / pageSize
 	start := page * pageSize
 	end := min(start+pageSize, total)
@@ -287,20 +359,48 @@ func buildResultsView(prog *abit.Program, abits []abit.Abiturient, page int) (st
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "📋 *%s* — %s\n",
 		mdEscape(prog.UniversityName), mdEscape(prog.ProgramName))
-	fmt.Fprintf(&sb, "Знайдено *%d* заяв · Сторінка %d / %d\n\n",
-		total, page+1, maxPage+1)
-	sb.WriteString("Натисни на абітурієнта для деталей 👇")
+
+	if mode == modeCompetitors {
+		fmt.Fprintf(&sb, "🎯 Конкуренти: *%d* / %d · Сторінка %d / %d\n",
+			total, len(all), page+1, maxPage+1)
+	} else {
+		competitorsTotal := countCompetitors(all, userScore)
+		if userScore > 0 {
+			fmt.Fprintf(&sb, "Заявок: *%d* · 🔴 Конкурентів: *%d* · Сторінка %d / %d\n",
+				total, competitorsTotal, page+1, maxPage+1)
+		} else {
+			fmt.Fprintf(&sb, "Заявок: *%d* · Сторінка %d / %d\n",
+				total, page+1, maxPage+1)
+		}
+	}
+
+	if userScore > 0 {
+		fmt.Fprintf(&sb, "🧮 *Твій бал:* `%.3f`\n", userScore)
+	} else {
+		sb.WriteString("_Заповни /profile, щоб бачити, хто реально конкурент._\n")
+	}
+	sb.WriteString("\nНатисни на абітурієнта для деталей 👇")
 
 	kb := &tele.ReplyMarkup{}
-	rows := make([]tele.Row, 0, end-start+3)
+	rows := make([]tele.Row, 0, end-start+4)
 
 	for i := start; i < end; i++ {
-		ab := abits[i]
+		ab := view[i]
 		rows = append(rows, kb.Row(kb.Data(
-			applicantButtonLabel(ab, i+1),
+			applicantButtonLabel(ab, i+1, userScore),
 			btnUniqueApplicant,
 			callback.Encode(strconv.Itoa(ab.ID)),
 		)))
+	}
+
+	// Mode toggle — only meaningful when the user has a score and there's
+	// at least one competitor above them.
+	if userScore > 0 && (mode == modeCompetitors || countCompetitors(all, userScore) > 0) {
+		label := "🎯 Тільки конкуренти"
+		if mode == modeCompetitors {
+			label = "📋 Усі заяви"
+		}
+		rows = append(rows, kb.Row(kb.Data(label, btnUniqueToggleMode)))
 	}
 
 	if maxPage > 0 {
@@ -322,14 +422,36 @@ func buildResultsView(prog *abit.Program, abits []abit.Abiturient, page int) (st
 	return sb.String(), kb
 }
 
+func countCompetitors(abits []abit.Abiturient, mine float64) int {
+	if mine <= 0 {
+		return 0
+	}
+	n := 0
+	for _, ab := range abits {
+		if ab.Score > mine {
+			n++
+		}
+	}
+	return n
+}
+
 // applicantButtonLabel is what shows up on the applicant's button.
-// Compact: rank, status marker, name, score. Inline buttons have a
-// pragmatic length cap before Telegram hides text on small screens.
-func applicantButtonLabel(ab abit.Abiturient, rank int) string {
-	marker := statusMarker(ab.Status)
-	label := fmt.Sprintf("%d. %s%s — %.1f", rank, marker, ab.Name, ab.Score)
+// Compact: rank, competitor marker (when userScore > 0), status marker,
+// name, score. Inline buttons have a pragmatic length cap before
+// Telegram hides text on small screens.
+func applicantButtonLabel(ab abit.Abiturient, rank int, userScore float64) string {
+	threatMarker := ""
+	if userScore > 0 {
+		if ab.Score > userScore {
+			threatMarker = "🔴 "
+		} else {
+			threatMarker = "🟢 "
+		}
+	}
+	statusM := statusMarker(ab.Status)
+	label := fmt.Sprintf("%d. %s%s%s — %.1f",
+		rank, threatMarker, statusM, ab.Name, ab.Score)
 	if len(label) > 60 {
-		// truncate from the name field to keep the score visible
 		label = label[:57] + "…"
 	}
 	return label

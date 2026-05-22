@@ -40,6 +40,7 @@ func (b *Bot) registerRoutes() {
 		btnUniqueApplicant:            b.handleApplicantView,
 		btnUniqueApplicantHistory:     b.handleApplicantHistory,
 		btnUniqueBackToList:           b.handleBackToList,
+		btnUniqueToggleMode:           b.handleToggleMode,
 		btnUniqueProfileBack:          b.handleProfileBack,
 		btnUniqueProfileEditNMT:       b.handleProfileEditNMT,
 		btnUniqueProfileSubject:       b.handleProfileSubject,
