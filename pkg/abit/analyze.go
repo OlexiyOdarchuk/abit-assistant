@@ -86,6 +86,10 @@ type AnalyzeInput struct {
 	// UserQuotas lists quota codes (QuotaKV1, QuotaKV2, ...) the user
 	// qualifies under. Sourced from storage.UserSettings.Quotas.
 	UserQuotas []string
+	// Overrides is the optional per-applicant manual verdict map. Lets
+	// the user say "ignore #42 — they'll pass elsewhere" or "treat #99
+	// as a real threat" and have the analysis reflect that.
+	Overrides OverrideMap
 }
 
 // Analyze ranks the user against the field of applicants on the given
@@ -125,7 +129,7 @@ func Analyze(prog *Program, abits []Abiturient, in AnalyzeInput) Analysis {
 		alreadyEnrolled int
 	)
 	for _, ab := range abits {
-		if !IsCompetitor(ab, in.UserScore) {
+		if !IsCompetitorWith(ab, in.UserScore, in.Overrides) {
 			continue
 		}
 		low := strings.ToLower(ab.Status)

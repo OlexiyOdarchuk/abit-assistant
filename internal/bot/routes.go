@@ -39,6 +39,7 @@ func (b *Bot) registerRoutes() {
 		btnUniquePageNext:             b.handlePageNext,
 		btnUniqueApplicant:            b.handleApplicantView,
 		btnUniqueApplicantHistory:     b.handleApplicantHistory,
+		btnUniqueToggleThreat:         b.handleToggleThreat,
 		btnUniqueBackToList:           b.handleBackToList,
 		btnUniqueToggleMode:           b.handleToggleMode,
 		btnUniqueSummary:              b.handleSummaryCB,

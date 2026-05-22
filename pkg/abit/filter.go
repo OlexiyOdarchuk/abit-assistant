@@ -2,8 +2,25 @@ package abit
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 )
+
+// OverrideMap is a manual "is competitor?" verdict the user has set
+// per applicant. Keys are applicant IDs as strings (so the map stays
+// JSON-friendly for persistence in FSM/storage); values are the forced
+// decision. Absent entries fall through to the default IsCompetitor
+// heuristic. Use IsCompetitorWith for lookups.
+type OverrideMap = map[string]bool
+
+// IsCompetitorWith is IsCompetitor with a user override layered on top.
+// A nil map is fine — it behaves identically to IsCompetitor.
+func IsCompetitorWith(ab Abiturient, userScore float64, overrides OverrideMap) bool {
+	if v, has := overrides[strconv.Itoa(ab.ID)]; has {
+		return v
+	}
+	return IsCompetitor(ab, userScore)
+}
 
 // IsCompetitor reports whether ab realistically competes with someone
 // at userScore for a budget seat. Encodes the heuristic shared by the
