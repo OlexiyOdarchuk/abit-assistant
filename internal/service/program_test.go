@@ -126,6 +126,53 @@ func TestProgramService_Refresh_BypassesCache(t *testing.T) {
 	}
 }
 
+// TestProgramService_Refresh_CancelDoesNotPoisonOthers proves the
+// singleflight fix: when one caller cancels its context mid-parse, a
+// concurrent caller for the same URL still gets the real result, not the
+// first caller's cancellation error.
+func TestProgramService_Refresh_CancelDoesNotPoisonOthers(t *testing.T) {
+	store := newStore(t)
+	release := make(chan struct{})
+	entered := make(chan struct{})
+	fixture := newFixtureProgram()
+	src := &fakeSource{parse: func(ctx context.Context, _ string) (*abit.Program, error) {
+		close(entered)
+		<-release // hold the single in-flight parse until both callers wait
+		return fixture, nil
+	}}
+	svc := service.NewProgramService(src, store, time.Hour)
+	url := "https://example/y2025/r14/282/1471029/"
+
+	// Caller A initiates and will be cancelled.
+	ctxA, cancelA := context.WithCancel(context.Background())
+	aErr := make(chan error, 1)
+	go func() { _, err := svc.Refresh(ctxA, url); aErr <- err }()
+	<-entered // A is now inside Parse, holding the flight
+
+	// Caller B joins the same in-flight call with a live context.
+	bRes := make(chan *abit.Program, 1)
+	bErr := make(chan error, 1)
+	go func() {
+		p, err := svc.Refresh(context.Background(), url)
+		bRes <- p
+		bErr <- err
+	}()
+
+	// Cancel A, then let the shared parse finish.
+	cancelA()
+	close(release)
+
+	if err := <-aErr; !errors.Is(err, context.Canceled) {
+		t.Errorf("caller A: want context.Canceled, got %v", err)
+	}
+	if err := <-bErr; err != nil {
+		t.Errorf("caller B poisoned by A's cancel: %v", err)
+	}
+	if p := <-bRes; p == nil || p.UniversityName != fixture.UniversityName {
+		t.Errorf("caller B got wrong/nil result: %+v", p)
+	}
+}
+
 func TestProgramService_Fetch_ParseErrorIsPropagated(t *testing.T) {
 	store := newStore(t)
 	want := errors.New("network down")

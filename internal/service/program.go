@@ -70,26 +70,42 @@ func (s *ProgramService) Fetch(ctx context.Context, url string) (*abit.Program, 
 	return s.Refresh(ctx, url)
 }
 
+// parseTimeout caps a single shared parse so a detached in-flight fetch
+// can't run forever if every caller walks away before it finishes.
+const parseTimeout = 90 * time.Second
+
 // Refresh bypasses the cache and always fetches a fresh copy from the
 // source, writing it back into the cache. Useful for admin "force
 // refresh" commands. Concurrent callers for the same URL share a single
 // in-flight parse via singleflight — saves bandwidth and avoids
 // rate-limit at the source.
+//
+// Each caller waits on its OWN context: if caller A cancels, only A
+// returns early — the shared parse keeps running for B, C… The work
+// itself runs on a context detached from any single caller (so A's
+// cancellation can't poison the others) but bounded by parseTimeout.
 func (s *ProgramService) Refresh(ctx context.Context, url string) (*abit.Program, error) {
-	v, err, _ := s.flight.Do(url, func() (any, error) {
-		prog, err := s.src.Parse(ctx, url)
+	ch := s.flight.DoChan(url, func() (any, error) {
+		workCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), parseTimeout)
+		defer cancel()
+		prog, err := s.src.Parse(workCtx, url)
 		if err != nil {
 			return nil, fmt.Errorf("program: parse: %w", err)
 		}
-		if err := s.store.PutProgramCache(ctx, url, prog); err != nil {
-			s.log.WarnContext(ctx, "cache write failed", "err", err, "url", url)
+		if err := s.store.PutProgramCache(workCtx, url, prog); err != nil {
+			s.log.WarnContext(workCtx, "cache write failed", "err", err, "url", url)
 		}
 		return prog, nil
 	})
-	if err != nil {
-		return nil, err
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case res := <-ch:
+		if res.Err != nil {
+			return nil, res.Err
+		}
+		return res.Val.(*abit.Program), nil
 	}
-	return v.(*abit.Program), nil
 }
 
 // FetchDecoded returns the program already decoded into []Abiturient.
