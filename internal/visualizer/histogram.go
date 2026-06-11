@@ -36,7 +36,11 @@ func Histogram(abits []abit.Abiturient, userScore float64, bucketSize float64) (
 	}
 
 	bars := make([]chart.Value, 0, len(buckets))
+	maxCount := 0
 	for _, bkt := range buckets {
+		if bkt.Count > maxCount {
+			maxCount = bkt.Count
+		}
 		bars = append(bars, chart.Value{
 			Value: float64(bkt.Count),
 			Label: fmt.Sprintf("%.0f", bkt.Lo),
@@ -71,6 +75,13 @@ func Histogram(abits []abit.Abiturient, userScore float64, bucketSize float64) (
 				Padding:  chart.Box{Right: 10},
 			},
 			Style: chart.Style{FontSize: 10},
+			// Pin the range explicitly. go-chart derives the Y range from
+			// the bar values and panics with "invalid data range; cannot
+			// be zero" when every bar is equal (e.g. all applicants share
+			// one score → a single bucket, or several equal buckets). That
+			// case is common late in admissions when scores cluster, so we
+			// must always present a non-degenerate range.
+			Range: &chart.ContinuousRange{Min: 0, Max: float64(maxCount) + 1},
 		},
 		Bars: bars,
 	}

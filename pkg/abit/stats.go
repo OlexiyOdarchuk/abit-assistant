@@ -65,7 +65,20 @@ func Distribution(applicants []Abiturient, bucketSize float64) []Bucket {
 	if len(applicants) == 0 || bucketSize <= 0 {
 		return nil
 	}
-	scores := scoresOf(applicants)
+	// Drop non-finite scores (NaN/±Inf). A single NaN would otherwise
+	// turn floor(s/bucketSize) into a garbage index and panic the
+	// bucket-fill loop; ±Inf overflows the slice capacity. These can
+	// reach us from a malformed source row (strconv.ParseFloat accepts
+	// "NaN"/"Inf") so the guard is load-bearing, not paranoia.
+	scores := make([]float64, 0, len(applicants))
+	for _, ab := range applicants {
+		if isFinite(ab.Score) {
+			scores = append(scores, ab.Score)
+		}
+	}
+	if len(scores) == 0 {
+		return nil
+	}
 	minS, maxS := scores[0], scores[0]
 	for _, s := range scores[1:] {
 		if s < minS {
@@ -155,6 +168,10 @@ func RealCompetitors(applicants []Abiturient, myScore float64, strict bool) []Ab
 }
 
 // --- helpers ---
+
+func isFinite(f float64) bool {
+	return !math.IsNaN(f) && !math.IsInf(f, 0)
+}
 
 func scoresOf(applicants []Abiturient) []float64 {
 	out := make([]float64, len(applicants))
