@@ -1,14 +1,32 @@
 ---
-tags: [project/abit-assistant, doc/edbo, status/blocked]
+tags: [project/abit-assistant, doc/edbo, status/reversed]
 ---
 
 # 06 — EDBO Research
 
+> **ОНОВЛЕНО 11.06.2026 — API повністю реверснуто вживу.** Повна карта
+> ендпоінтів, схем і виправлена формула → [[../tools/edbo-reverse/API.md|tools/edbo-reverse/API.md]].
+> Нижче — історичний контекст; ключові висновки вже не «blocked».
+
 ## TL;DR
 
-ЄДЕБО — першоджерело даних (osvita.ua тільки проксіює). Парсер не написано бо **архіви офер-сторінок чистяться після кампанії**. На травень 2026 — vstup2024/2025/2026 всі віддають "Конкурсна пропозиція не знайдена" на будь-який `/offer/<id>/`.
+ЄДЕБО — першоджерело даних (osvita.ua тільки проксіює). Раніше парсер
+не писали бо архіви офер-сторінок чистяться після кампанії. **Станом на
+11.06.2026 `vstup2025.edbo.gov.ua` знову віддає живі дані**, і весь
+ланцюг реверснуто: `/university-search/` → `/offers-universities/` →
+`/offers-list/` → `/offer/<id>/` → `POST /offer-requests/`. POST-и
+вимагають заголовок `Origin` (інакше тихо порожньо). `/offers-list/`
+віддає обсяги+коефіцієнти+статистику JSON-ом (HTML-скрейп osvita майже
+не потрібен). `/offer-requests/` віддає рейтинг заяв із відкритим `kv`.
 
-Але через Playwright capture (див. `tools/edbo-reverse/`) ми зловили `js/functions.js` живого 2025 — а в ньому повний AES-CBC helper. **Формула підтверджена, чекаємо живий blob.**
+### ⚠️ Виправлення формули salt
+
+Стара нотатка нижче казала, що `(7500-prsid)*n` — хибний guess, і що
+правильно `'v'+a*b`. **Це було неправильно.** Живий шаблон офера:
+`{{dec fio (multiply (subtract 7500 prsid) n)}}` → **salt = "v" +
+((7500 - prsid) * n)**. Підтверджено на 85 рядках (усі `p` →
+"<пріоритет> (Б)"). Код виправлено: `crypto.go::SaltName/DecryptName`,
+доданий реальний regression-тест `TestDecryptName_KnownSample`.
 
 ## Що знайшли
 
