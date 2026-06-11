@@ -2,9 +2,9 @@
 //
 // vstup.osvita.ua exposes a two-step pagination API: a POST returns a JSON
 // URL, and a GET against that URL returns one page of applicant requests.
-// We fan out N workers, each striding through pages by N*pageSize, and stop
-// once the smallest offset that returned an empty page is reached by all
-// workers.
+// We fan out N workers, each striding through a disjoint set of page
+// offsets (stride = N*pageSize). Each worker stops at its own first empty
+// page; the first hard error cancels the shared context so siblings stop.
 package osvita
 
 import (
@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"math"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -22,7 +21,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
@@ -121,12 +119,19 @@ func parseProgramURL(rawURL string) (sid, uid, year string, err error) {
 }
 
 // fanOut runs p.workers goroutines, each striding through pages by
-// p.pageSize * p.workers. When a worker sees an empty page at offset O, it
-// ratchets the shared stopAt boundary down to O; the others exit as soon as
-// they reach an offset >= stopAt.
+// p.pageSize * p.workers. Each worker owns a disjoint set of page offsets
+// (worker w covers w*pageSize, w*pageSize+stride, …), so the lanes never
+// overlap and together cover every page. A lane stops at its own first
+// empty page — we deliberately do NOT let one lane's empty page truncate
+// the others: a transient empty body (osvita serves these to cold
+// sessions) in one lane must not silently drop another lane's data. The
+// cost is at most workers-1 extra empty fetches at the true tail.
+//
+// On the first hard error a worker records it and cancels the shared
+// context, so sibling lanes stop promptly instead of hammering osvita.
 func (p *Parser) fanOut(ctx context.Context, prog *abit.Program, sid, uid, year string) error {
-	var stopAt atomic.Int64
-	stopAt.Store(math.MaxInt64)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	var (
 		mu       sync.Mutex
@@ -149,21 +154,22 @@ func (p *Parser) fanOut(ctx context.Context, prog *abit.Program, sid, uid, year 
 				if ctx.Err() != nil {
 					return
 				}
-				if int64(offset) >= stopAt.Load() {
-					return
-				}
 				chunk, err := p.fetchChunk(ctx, sid, uid, year, offset)
 				if err != nil {
-					mu.Lock()
-					if firstErr == nil {
-						firstErr = fmt.Errorf("offset %d: %w", offset, err)
+					// A cancellation triggered by a sibling's error isn't a
+					// new failure — don't overwrite the real firstErr with it.
+					if ctx.Err() == nil {
+						mu.Lock()
+						if firstErr == nil {
+							firstErr = fmt.Errorf("offset %d: %w", offset, err)
+						}
+						mu.Unlock()
+						cancel() // stop the siblings
 					}
-					mu.Unlock()
 					return
 				}
 				if len(chunk.Requests) == 0 {
-					ratchetDown(&stopAt, int64(offset))
-					return
+					return // end of this lane's data
 				}
 				mu.Lock()
 				requests = append(requests, chunk.Requests...)
@@ -178,18 +184,6 @@ func (p *Parser) fanOut(ctx context.Context, prog *abit.Program, sid, uid, year 
 	prog.Requests = requests
 	prog.RequestSubjects = subjects
 	return firstErr
-}
-
-func ratchetDown(stopAt *atomic.Int64, candidate int64) {
-	for {
-		cur := stopAt.Load()
-		if candidate >= cur {
-			return
-		}
-		if stopAt.CompareAndSwap(cur, candidate) {
-			return
-		}
-	}
 }
 
 func formValues(year, sid, uid string, last int) url.Values {
