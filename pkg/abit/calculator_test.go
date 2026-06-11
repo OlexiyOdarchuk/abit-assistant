@@ -59,6 +59,27 @@ func TestComputeRating_PicksBestAdditional(t *testing.T) {
 	nearly(t, got, num/den)
 }
 
+// TestComputeRating_ElectivePenalty pins the official 2025 denominator
+// term (К4макс + К4)/2 for the elective slot. The program's best
+// elective coefficient (K4Max) is 0.40, but the user's best scoring
+// elective uses coef 0.25 — so the denominator must charge (0.40+0.25)/2
+// = 0.325 for that slot, not 0.25, lowering the score.
+func TestComputeRating_ElectivePenalty(t *testing.T) {
+	prog := sampleProgram()
+	prog.K4Max = 0.40
+	got := ComputeRating(prog, RatingInput{
+		NMT: map[string]float64{
+			"Українська мова": 180,
+			"Математика":      170,
+			"Історія України": 175,
+			"Англійська мова": 190, // coef 0.25, the winning elective
+		},
+	})
+	num := 180*0.35 + 170*0.40 + 175*0.25 + 190*0.25
+	den := 0.35 + 0.40 + 0.25 + (0.40+0.25)/2
+	nearly(t, got, num/den)
+}
+
 func TestComputeRating_CreativeScoreIncluded(t *testing.T) {
 	prog := &Program{
 		EB: 40,

@@ -80,8 +80,16 @@ func ComputeRating(prog *Program, in RatingInput) float64 {
 		}
 	}
 	if bestSubj != "" {
-		sumScore += in.NMT[bestSubj] * coefByName[bestSubj]
-		sumCoef += coefByName[bestSubj]
+		coef := coefByName[bestSubj]
+		sumScore += in.NMT[bestSubj] * coef
+		// Official 2025 formula: the elective slot contributes
+		// (К4макс + К4)/2 to the DENOMINATOR (numerator still uses К4).
+		// This is the built-in penalty for not choosing the program's
+		// highest-weighted 4th subject. Guard against a stale/“default”
+		// K4Max that is smaller than the actual coef — max() keeps the
+		// term ≥ coef so we never inflate the score.
+		k4max := math.Max(prog.K4Max, coef)
+		sumCoef += (k4max + coef) / 2
 	}
 
 	// 3. Creative contest.
