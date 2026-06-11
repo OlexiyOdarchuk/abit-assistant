@@ -93,34 +93,53 @@ func TestAnalyze_GeneralPool_HighChance(t *testing.T) {
 }
 
 func TestAnalyze_GeneralPool_MediumChance(t *testing.T) {
-	// 5 competitors above me; budget 8 → all 5 take general seats,
-	// leaving 3. My rank is 6 → 6 > 3 but ≤ 3+5, hits the medium band.
-	prog := progWithVolume(8, 0, 0)
-	abits := []Abiturient{
-		ab(1, 200), ab(2, 195), ab(3, 190), ab(4, 188), ab(5, 180),
+	// budget 5, nobody enrolled. 9 competitors above me → rank 10. That's
+	// just past capacity (5) but within the +5 "others may drop" band.
+	prog := progWithVolume(5, 0, 0)
+	abits := make([]Abiturient, 9)
+	for i := range abits {
+		abits[i] = ab(i+1, 180+float64(i)) // all > my 170
 	}
-	got := Analyze(prog, abits, AnalyzeInput{UserScore: 175})
+	got := Analyze(prog, abits, AnalyzeInput{UserScore: 170})
 	if got.Chance != ChanceMedium {
-		t.Errorf("Chance = %v (%s), want Medium (rank=%d, remaining=%d)",
-			got.Chance, got.Chance.Label(), got.MyRealRank, got.RemainingSpots)
+		t.Errorf("Chance = %v (%s), want Medium (rank=%d, seats=5)",
+			got.Chance, got.Chance.Label(), got.MyRealRank)
 	}
-	if got.MyRealRank != 6 {
-		t.Errorf("rank = %d", got.MyRealRank)
+	if got.MyRealRank != 10 {
+		t.Errorf("rank = %d, want 10", got.MyRealRank)
 	}
 }
 
-func TestAnalyze_GeneralPool_LowChance(t *testing.T) {
-	// 10 competitors above me; budget 15 → 10 of them take general
-	// seats, leaving 5. My rank is 11 → 11 > 5+5, so Low.
+func TestAnalyze_GeneralPool_HighWhenRankFitsBudget(t *testing.T) {
+	// 10 competitors above me, budget 15, none enrolled. Rank 11 ≤ 15 →
+	// the applicant clearly gets a seat. (Regression: the old double-count
+	// reported Low here, discouraging a student who actually passes.)
 	prog := progWithVolume(15, 0, 0)
 	abits := make([]Abiturient, 10)
 	for i := range abits {
 		abits[i] = ab(i+1, 180+float64(i))
 	}
 	got := Analyze(prog, abits, AnalyzeInput{UserScore: 170})
+	if got.Chance != ChanceHigh {
+		t.Errorf("Chance = %v (%s), want High (rank=%d, 15 seats)",
+			got.Chance, got.Chance.Label(), got.MyRealRank)
+	}
+	if got.MyRealRank != 11 {
+		t.Errorf("rank = %d, want 11", got.MyRealRank)
+	}
+}
+
+func TestAnalyze_GeneralPool_LowChance(t *testing.T) {
+	// budget 3, 10 competitors above me → rank 11, far past 3+5. Low.
+	prog := progWithVolume(3, 0, 0)
+	abits := make([]Abiturient, 10)
+	for i := range abits {
+		abits[i] = ab(i+1, 180+float64(i))
+	}
+	got := Analyze(prog, abits, AnalyzeInput{UserScore: 170})
 	if got.Chance != ChanceLow {
-		t.Errorf("Chance = %v (%s), want Low (rank=%d, remaining=%d)",
-			got.Chance, got.Chance.Label(), got.MyRealRank, got.RemainingSpots)
+		t.Errorf("Chance = %v (%s), want Low (rank=%d, seats=3)",
+			got.Chance, got.Chance.Label(), got.MyRealRank)
 	}
 }
 
@@ -159,6 +178,47 @@ func TestAnalyze_QuotaPath_PassesQuota1(t *testing.T) {
 	}
 	if got.MyRealRank != 1 {
 		t.Errorf("rank = %d, want 1 (nobody above me in Q1)", got.MyRealRank)
+	}
+}
+
+func TestAnalyze_SBExcludedFromGeneralPool(t *testing.T) {
+	// A general (non-quota) user with budget 2. Three higher-scored
+	// applicants: two are СБ (співбесіда — reserved track), one is a real
+	// general competitor. Only the genuine general competitor should rank
+	// against the user, so rank = 2 (1 above + me) and the seat is winnable.
+	prog := progWithVolume(2, 0, 0)
+	abits := []Abiturient{
+		ab(1, 195, withQuotas(QuotaSB)),
+		ab(2, 192, withQuotas(QuotaSB)),
+		ab(3, 188), // the only general competitor above me
+	}
+	got := Analyze(prog, abits, AnalyzeInput{UserScore: 180})
+	if got.CompetitorsTotal != 3 {
+		t.Errorf("CompetitorsTotal = %d, want 3 (СБ still counted overall)", got.CompetitorsTotal)
+	}
+	if got.MyRealRank != 2 {
+		t.Errorf("MyRealRank = %d, want 2 (only the 1 general competitor above me)", got.MyRealRank)
+	}
+	if got.Chance != ChanceHigh {
+		t.Errorf("Chance = %v (%s), want High — СБ entrants must not crowd the general pool",
+			got.Chance, got.Chance.Label())
+	}
+}
+
+func TestAnalyze_EnrolledQuotaHolderConsumesSeat(t *testing.T) {
+	// Quota-1 has 1 seat. A higher-scored КВ1 applicant is already "до
+	// наказу" — they took the only quota seat. The user (also КВ1) must
+	// NOT be told they pass Q1.
+	prog := progWithVolume(10, 1, 0)
+	abits := []Abiturient{
+		ab(1, 190, withQuotas(QuotaKV1), withStatus("До наказу (бюджет)")),
+	}
+	got := Analyze(prog, abits, AnalyzeInput{
+		UserScore:  185,
+		UserQuotas: []string{QuotaKV1},
+	})
+	if got.Chance == ChanceHighQuota1 {
+		t.Errorf("Chance = HighQuota1, but the only Q1 seat is already taken by an enrolled holder")
 	}
 }
 

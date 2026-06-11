@@ -104,8 +104,11 @@ type AnalyzeInput struct {
 // our isCompetitor predicate):
 //
 //  1. Walk the applicant list; for each one that IsCompetitor passes,
-//     bucket them by their quota (KV1 / KV2 / general) OR count them
-//     under "already enrolled" if the status is "до наказу" / "рекомендовано".
+//     bucket them by their admission track: KV1 / KV2 / general, OR a
+//     separate reserved track (СБ співбесіда / KV3) that does NOT compete
+//     for general seats, OR count them under "already enrolled" if the
+//     status is "до наказу" / "рекомендовано" (tracking which quota seat
+//     an enrolled quota holder occupies).
 //  2. Apply quota caps: q1_taken = min(len(q1), Quota1Volume), same for Q2.
 //  3. General-pool seats taken = min(len(general), Budget - q1_taken - q2_taken).
 //  4. Remaining seats = Budget - q1_taken - q2_taken - general_taken
@@ -130,28 +133,53 @@ func Analyze(prog *Program, abits []Abiturient, in AnalyzeInput) Analysis {
 	}
 
 	var (
-		q1, q2, general []Abiturient
-		alreadyEnrolled int
+		q1, q2, general                         []Abiturient
+		alreadyEnrolled                         int
+		q1Enrolled, q2Enrolled, generalEnrolled int // enrolled holders already consuming a seat on each track
+		reservedOther                           int // СБ/КВ3-only entrants — admitted on a separate (співбесіда/quota-3) track, NOT the general competition
 	)
 	for _, ab := range abits {
 		if !IsCompetitorWith(ab, in.UserScore, in.Overrides) {
 			continue
 		}
+		hasKV1 := slices.Contains(ab.Quotas, QuotaKV1)
+		hasKV2 := slices.Contains(ab.Quotas, QuotaKV2)
+		// СБ (співбесіда) and КВ3 are alternative admission tracks onto
+		// reserved seats, not the general NMT competition. An applicant
+		// who is ALSO КВ1/КВ2 is a quota entrant via співбесіда → counted
+		// under that quota (КВ1/КВ2 take precedence below).
+		reservedTrack := slices.Contains(ab.Quotas, QuotaSB) || slices.Contains(ab.Quotas, QuotaKV3)
+
 		low := strings.ToLower(ab.Status)
 		if strings.Contains(low, "до наказу") || strings.Contains(low, "рекомендовано") {
 			alreadyEnrolled++
+			// Track which track's seat each enrolled holder occupies. These
+			// are committed (до наказу = order issued) — they will NOT drop,
+			// so they permanently subtract from that track's capacity.
+			switch {
+			case hasKV1:
+				q1Enrolled++
+			case hasKV2:
+				q2Enrolled++
+			case reservedTrack:
+				// reserved-track enrolment — doesn't touch general seats
+			default:
+				generalEnrolled++
+			}
 			continue
 		}
 		switch {
-		case slices.Contains(ab.Quotas, QuotaKV1):
+		case hasKV1:
 			q1 = append(q1, ab)
-		case slices.Contains(ab.Quotas, QuotaKV2):
+		case hasKV2:
 			q2 = append(q2, ab)
+		case reservedTrack:
+			reservedOther++ // counted as a competitor, but not in the general pool
 		default:
 			general = append(general, ab)
 		}
 	}
-	out.CompetitorsTotal = len(q1) + len(q2) + len(general) + alreadyEnrolled
+	out.CompetitorsTotal = len(q1) + len(q2) + len(general) + reservedOther + alreadyEnrolled
 	out.AlreadyEnrolled = alreadyEnrolled
 
 	// If the volume scraper failed to find a license size, we cannot
@@ -167,61 +195,73 @@ func Analyze(prog *Program, abits []Abiturient, in AnalyzeInput) Analysis {
 		return out
 	}
 
-	q1Taken := minInt(len(q1), out.Quota1Total)
-	q2Taken := minInt(len(q2), out.Quota2Total)
-	generalCap := maxInt(0, out.BudgetTotal-q1Taken-q2Taken)
-	generalTaken := minInt(len(general), generalCap)
-	out.RemainingSpots = maxInt(0,
-		out.BudgetTotal-q1Taken-q2Taken-generalTaken-alreadyEnrolled)
+	// Seats consumed by each quota (capped at its reservation). Unused
+	// quota seats roll into the general pool automatically because we
+	// subtract only what each quota actually USES, not its full size.
+	q1Used := minInt(out.Quota1Total, len(q1)+q1Enrolled)
+	q2Used := minInt(out.Quota2Total, len(q2)+q2Enrolled)
+	generalSeats := maxInt(0, out.BudgetTotal-q1Used-q2Used)
 
-	// Quota-1 / Quota-2 paths.
+	// Quota-1 / Quota-2 paths. Quota seats already taken by enrolled
+	// quota holders are gone, so the user competes for the seats that
+	// remain (q*Avail), ranked against the not-yet-enrolled quota pool.
 	if slices.Contains(in.UserQuotas, QuotaKV1) {
 		rank := rankByScore(q1, in.UserScore)
 		out.MyRealRank = rank
-		if rank <= out.Quota1Total {
+		q1Avail := maxInt(0, out.Quota1Total-q1Enrolled)
+		if rank <= q1Avail {
 			out.Chance = ChanceHighQuota1
 			out.Advice = fmt.Sprintf(
-				"Проходиш по Квоті 1! (%d-й з %d місць)",
-				rank, out.Quota1Total)
+				"Проходиш по Квоті 1! (%d-й на %d вільних із %d місць)",
+				rank, q1Avail, out.Quota1Total)
 			return out
 		}
 	}
 	if out.Chance == ChanceUnknown && slices.Contains(in.UserQuotas, QuotaKV2) {
 		rank := rankByScore(q2, in.UserScore)
 		out.MyRealRank = rank
-		if rank <= out.Quota2Total {
+		q2Avail := maxInt(0, out.Quota2Total-q2Enrolled)
+		if rank <= q2Avail {
 			out.Chance = ChanceHighQuota2
 			out.Advice = fmt.Sprintf(
-				"Проходиш по Квоті 2! (%d-й з %d місць)",
-				rank, out.Quota2Total)
+				"Проходиш по Квоті 2! (%d-й на %d вільних із %d місць)",
+				rank, q2Avail, out.Quota2Total)
 			return out
 		}
 	}
 
-	// General pool.
+	// General pool. Committed enrolees (generalEnrolled) hold their seats
+	// permanently; the rest are contested by score. The user passes if
+	// their rank among the not-yet-enrolled pool fits within the seats
+	// left after the enrolees. Crucially we do NOT also subtract the
+	// higher-ranked-but-not-enrolled people from capacity — they ARE the
+	// rank, so subtracting them too would double-count (the old bug that
+	// reported "Low" for a rank-11 applicant with 15 seats).
+	freeAfterEnrolled := maxInt(0, generalSeats-generalEnrolled)
 	rank := rankByScore(general, in.UserScore)
 	out.MyRealRank = rank
+	out.RemainingSpots = maxInt(0, freeAfterEnrolled-(rank-1))
 
 	switch {
-	case out.RemainingSpots <= 0:
+	case freeAfterEnrolled <= 0:
 		out.Chance = ChanceZero
-		out.Advice = "Бюджетних місць у загальному конкурсі не залишилося."
-	case rank <= out.RemainingSpots:
+		out.Advice = "Усі бюджетні місця вже зайняті зарахованими — у загальному конкурсі вільних немає."
+	case rank <= freeAfterEnrolled:
 		out.Chance = ChanceHigh
 		out.Advice = fmt.Sprintf(
-			"Ти %d-й претендент на %d вільних місць. Шанси чудові! 🎉",
-			rank, out.RemainingSpots)
-	case rank <= out.RemainingSpots+5:
+			"Ти %d-й у загальному конкурсі на %d бюджетних місць. Проходиш! 🎉",
+			rank, freeAfterEnrolled)
+	case rank <= freeAfterEnrolled+5:
 		out.Chance = ChanceMedium
-		gap := rank - out.RemainingSpots
+		gap := rank - freeAfterEnrolled
 		out.Advice = fmt.Sprintf(
-			"Ти %d-й на %d місць. Є шанс — якщо %d людей відмовляться.",
-			rank, out.RemainingSpots, gap)
+			"Ти %d-й на %d бюджетних місць. Є шанс — якщо %d вище відмовляться.",
+			rank, freeAfterEnrolled, gap)
 	default:
 		out.Chance = ChanceLow
 		out.Advice = fmt.Sprintf(
-			"Ти %d-й, а місць лише %d. Шанси малі. 😔",
-			rank, out.RemainingSpots)
+			"Ти %d-й, а бюджетних місць лише %d. Шанси малі. 😔",
+			rank, freeAfterEnrolled)
 	}
 	return out
 }
