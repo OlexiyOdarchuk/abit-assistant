@@ -5,7 +5,7 @@
 //
 //	aa osvita    <program-url>
 //	aa abitpoisk <"surname initial initial">
-//	aa edbo decrypt <b64> <n> <prsid> [year]
+//	aa edbo decrypt <b64> <prsid> <n> [year]
 package main
 
 import (
@@ -70,13 +70,13 @@ Commands:
   osvita    <program-url>                  Parse a vstup.osvita.ua program page.
   abitpoisk <"surname initial initial">    Search abit-poisk.org.ua.
   decode    [< program.json]               Decode a Program (stdin) into []Abiturient.
-  edbo decrypt <b64> <n> <prsid> [year]    Decrypt a vstup.edbo.gov.ua name blob.
+  edbo decrypt <b64> <prsid> <n> [year]    Decrypt a vstup.edbo.gov.ua name blob.
 
 Examples:
   aa osvita https://vstup.osvita.ua/y2025/r14/282/1471029/
   aa osvita https://... | aa decode
   aa abitpoisk "Бовкун О В"
-  aa edbo decrypt MnZncVNmOGwva0UxZGFOK1VMTHpHdz09 1 14 2025`)
+  aa edbo decrypt dEZ3eS94ZjVVVWlab2lHd0o4ZHFJZz09 14 1 2025`)
 }
 
 func runOsvita(ctx context.Context, args []string) error {
@@ -125,25 +125,25 @@ func runDecode(args []string) error {
 
 func runEdbo(args []string) error {
 	if len(args) < 1 || args[0] != "decrypt" {
-		return errors.New("usage: aa edbo decrypt <b64> <n> <prsid> [year]")
+		return errors.New("usage: aa edbo decrypt <b64> <prsid> <n> [year]")
 	}
 	rest := args[1:]
 	if len(rest) < 3 || len(rest) > 4 {
-		return errors.New("usage: aa edbo decrypt <b64> <n> <prsid> [year]")
+		return errors.New("usage: aa edbo decrypt <b64> <prsid> <n> [year]")
 	}
 	year := "2025"
 	if len(rest) == 4 {
 		year = rest[3]
 	}
-	n, err := parseInt(rest[1], "n")
+	prsid, err := parseInt(rest[1], "prsid")
 	if err != nil {
 		return err
 	}
-	prsid, err := parseInt(rest[2], "prsid")
+	n, err := parseInt(rest[2], "n")
 	if err != nil {
 		return err
 	}
-	out, err := edbo.DecryptName(rest[0], n, prsid, year)
+	out, err := edbo.DecryptName(rest[0], prsid, n, year)
 	if err != nil {
 		return err
 	}

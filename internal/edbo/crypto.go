@@ -26,6 +26,22 @@
 // producing salt = "v" + str(x*y). Concrete x/y picks are template-
 // specific — we leave them to the caller and accept a raw salt string.
 //
+// The live offer template (vstup2025.edbo.gov.ua/offer/<id>/, captured
+// June 2026) renders each applicant field as:
+//
+//	{{dec fio (multiply (subtract 7500 prsid) n)}}
+//	{{dec p   (multiply (subtract 7500 prsid) n)}}
+//
+// i.e. the multiply's first argument is `(subtract 7500 prsid)`, not a
+// bare field. So the real per-applicant salt is:
+//
+//	salt = "v" + str((7500 - prsid) * n)
+//
+// where `prsid` is the request-status id and `n` is the 1-based row
+// number. This was verified against 85 live rows of offer 1507081:
+// every `p` blob decrypts to a clean priority value (e.g. "5 (Б)").
+// SaltName(prsid, n) builds this salt; DecryptName wraps it.
+//
 // The emitted blob is base64 twice over: outer is what the template
 // prints, inner is the AES output. Some payloads only have a single
 // layer — the decoder transparently handles either.
@@ -106,11 +122,23 @@ func SaltMultiply(a, b int) string {
 	return "v" + strconv.Itoa(a*b)
 }
 
+// saltBase is the constant the offer template subtracts prsid from:
+// `(subtract 7500 prsid)`. Captured verbatim from the live 2025 offer
+// page in June 2026.
+const saltBase = 7500
+
+// SaltName builds the per-applicant salt the offer template uses:
+// "v" + str((7500 - prsid) * n), matching
+// `{{dec field (multiply (subtract 7500 prsid) n)}}`.
+func SaltName(prsid, n int) string {
+	return SaltMultiply(saltBase-prsid, n)
+}
+
 // DecryptName is a convenience wrapper: builds the salt with
-// SaltMultiply(prsid, n) and calls Decrypt. Matches the typical
-// `{{dec encName (multiply prsid n)}}` call shape in templates.
+// SaltName(prsid, n) and calls Decrypt. Matches the live offer-page
+// `{{dec field (multiply (subtract 7500 prsid) n)}}` call shape.
 func DecryptName(encrypted string, prsid, n int, year string) (string, error) {
-	return Decrypt(encrypted, SaltMultiply(prsid, n), year)
+	return Decrypt(encrypted, SaltName(prsid, n), year)
 }
 
 // Encrypt is the inverse of Decrypt — produces the doubly-base64'd

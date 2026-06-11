@@ -88,20 +88,48 @@ func TestDecrypt_InvalidBase64(t *testing.T) {
 	}
 }
 
-// TestDecryptName_KnownSample is a placeholder for the day we have a
-// captured (encrypted_blob, prsid, n, year, expected_name) tuple from
-// a live EDBO page. The 2025 vstup2025.edbo.gov.ua archive serves only
-// "Конкурсна пропозиція не знайдена" stubs after the campaign closed,
-// so we cannot pin one today. Re-enable when 2026 launches and a real
-// quadruple lands in the repo.
-func TestDecryptName_KnownSample(t *testing.T) {
-	t.Skip("needs a live (b64, prsid, n, year, plaintext) quadruple — re-enable when 2026 campaign opens")
-
-	got, err := DecryptName("…blob…", 14, 1, "2026")
-	if err != nil {
-		t.Fatalf("DecryptName: %v", err)
+// TestSaltName pins the live offer-template salt formula
+// "v" + (7500-prsid)*n, captured from vstup2025.edbo.gov.ua/offer/1507081/
+// in June 2026.
+func TestSaltName(t *testing.T) {
+	cases := []struct {
+		prsid, n int
+		want     string
+	}{
+		{14, 1, "v7486"},  // (7500-14)*1
+		{14, 2, "v14972"}, // (7500-14)*2
+		{14, 10, "v74860"},
 	}
-	if strings.TrimSpace(got) == "" {
-		t.Fatal("empty plaintext")
+	for _, tc := range cases {
+		if got := SaltName(tc.prsid, tc.n); got != tc.want {
+			t.Errorf("SaltName(%d, %d) = %q, want %q", tc.prsid, tc.n, got, tc.want)
+		}
+	}
+}
+
+// TestDecryptName_KnownSample pins the formula against a REAL blob
+// captured from the live offer page. These are the `p` (priority)
+// fields of the first applicants of offer 1507081 (КНУ ім. Шевченка),
+// status id 14, year 2025. With the correct (7500-prsid)*n salt each
+// decrypts to a clean "<priority> (Б)" value; the old prsid*n salt
+// yields padding garbage. This is the regression guard for the
+// 9b59... formula fix.
+func TestDecryptName_KnownSample(t *testing.T) {
+	cases := []struct {
+		blob     string
+		prsid, n int
+		want     string
+	}{
+		{"dEZ3eS94ZjVVVWlab2lHd0o4ZHFJZz09", 14, 1, "5 (Б)"},
+	}
+	for _, tc := range cases {
+		got, err := DecryptName(tc.blob, tc.prsid, tc.n, "2025")
+		if err != nil {
+			t.Fatalf("DecryptName(%q, %d, %d): %v", tc.blob, tc.prsid, tc.n, err)
+		}
+		if strings.TrimSpace(got) != tc.want {
+			t.Errorf("DecryptName(%q, %d, %d) = %q, want %q",
+				tc.blob, tc.prsid, tc.n, got, tc.want)
+		}
 	}
 }
