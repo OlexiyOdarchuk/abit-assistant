@@ -31,6 +31,7 @@ const (
 	programCacheTTL   = 10 * time.Minute
 	applicantCacheTTL = 24 * time.Hour
 	enrichWorkers     = 4
+	discoverWorkers   = 6
 )
 
 func main() {
@@ -97,6 +98,9 @@ func run() error {
 	programSvc := service.NewProgramService(osvitaSrc, store, programCacheTTL)
 	applicantSvc := service.NewApplicantService(abitpoiskSrc, store, applicantCacheTTL)
 	enrichSvc := service.NewEnrichService(applicantSvc, enrichWorkers)
+	// osvitaSrc doubles as the program browser (it implements both
+	// parser.Source and service.ProgramBrowser).
+	discoverSvc := service.NewDiscoverService(osvitaSrc, programSvc, discoverWorkers)
 
 	b, err := bot.New(bot.Deps{
 		Config:    cfg,
@@ -104,6 +108,7 @@ func run() error {
 		Program:   programSvc,
 		Applicant: applicantSvc,
 		Enrich:    enrichSvc,
+		Discover:  discoverSvc,
 		Logger:    log,
 	})
 	if err != nil {

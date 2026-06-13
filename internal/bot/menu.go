@@ -16,6 +16,7 @@ const (
 
 ` + "`/menu`" + ` — головне меню
 ` + "`/search <url>`" + ` — швидкий аналіз програми з vstup.osvita.ua
+` + "`/where`" + ` — куди я вступлю: підбір програм за галуззю і регіоном
 ` + "`/profile`" + ` — твої НМТ і налаштування
 ` + "`/lists`" + ` — збережені аналізи
 ` + "`/admin`" + ` — адмін-панель (доступно тільки адміністраторам)
@@ -55,6 +56,13 @@ const (
 	btnUniqueChart            = "chart"
 	btnUniqueSaveList         = "save_list"
 
+	// Discover ("where can I get in") flow.
+	btnUniqueDiscover       = "disc"
+	btnUniqueDiscoverGaluz  = "disc_g"
+	btnUniqueDiscoverRegion = "disc_r"
+	btnUniqueDiscoverPage   = "disc_p"
+	btnUniqueDiscoverResult = "disc_res"
+
 	// Saved lists.
 	btnUniqueListManage        = "l_mng"
 	btnUniqueListView          = "l_view"
@@ -93,6 +101,7 @@ func mainMenuKeyboard() *tele.ReplyMarkup {
 	kb := &tele.ReplyMarkup{}
 	kb.Inline(
 		kb.Row(kb.Data("📊 Аналіз спеціальності", btnUniqueSearch)),
+		kb.Row(kb.Data("🧭 Куди я вступлю", btnUniqueDiscover)),
 		kb.Row(
 			kb.Data("👤 Профіль", btnUniqueProfile),
 			kb.Data("📂 Списки", btnUniqueLists),
