@@ -117,7 +117,7 @@ cd tools/edbo-reverse
 ./.venv/bin/python analyze.py out/<...>.json
 ```
 
-Дамп показує які XHR летять, чим вони відповідають, які поля зашифровані. Тоді — годину роботи на `pkg/parser/edbo/` і готово.
+Дамп показує які XHR летять, чим вони відповідають, які поля зашифровані. Тоді — годину роботи на `internal/parser/edbo/` і готово.
 
 ## Action items для червня 2026
 
@@ -126,7 +126,7 @@ cd tools/edbo-reverse
 3. **Запустити `capture.py --interactive`** — клацнути на сторінці, дозволити підвантажити заяви.
 4. **Знайти POST endpoint** який віддає список абітурієнтів.
 5. **Знайти salt format** — у Handlebars template буде видно конкретно `multiply(X, Y)` де X/Y — це поля з payload.
-6. Реалізувати `pkg/parser/edbo/` як `Source` interface.
+6. Реалізувати `internal/parser/edbo/` як `Source` interface.
 7. Wire через ProgramService як fallback / second source.
 
 ## Файли в коді

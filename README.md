@@ -13,7 +13,7 @@
 
 | | Python 2.x | Go 3.0 |
 |---|---|---|
-| Архітектура | моноліт `app/` | Standard Go Layout (`cmd/internal/pkg`) |
+| Архітектура | моноліт `app/` | Шари: `cmd/` (wiring) + `internal/` (домен, парсери, сервіси, бот) |
 | SQLite | n/a (PostgreSQL) | pure-Go `modernc.org/sqlite`, без CGo |
 | FSM | aiogram, in-memory | Persistent у SQLite — переживає рестарт |
 | Callback handling | `data.split("_")` | Typed args + `Btn.Unique` |
@@ -29,35 +29,41 @@ cmd/                  Точки входу (тільки wiring)
   bot/                  Telegram бот
   cli/                  Dev CLI
 
-pkg/                  Публічне ядро — підключається через `go get`
-  abit/                 Доменна модель: типи, decoder, filter, stats, calculator, links
+internal/             Уся реалізація (один застосунок, не публічна бібліотека)
+  abit/                 Доменна модель: типи, decoder, filter, stats, calculator, links, analyze
   parser/               Інтерфейс Source + реалізації
-    osvita/               vstup.osvita.ua (JSON API + JS-vars зі сторінки)
+    osvita/               vstup.osvita.ua (JSON API + JS-vars + /spec/ browse)
     abitpoisk/            abit-poisk.org.ua (пошук конкретного абітурієнта)
-
-internal/             Приватна реалізація
   bot/                  Telegram handlers, FSM, callback codec, middleware
     callback/             Typed args для callback_data
     fsm/                  Persistent FSM поверх SQLite
-  service/              Use cases: ProgramService, ApplicantService, EnrichService
+  service/              Use cases: Program, Applicant, Enrich, Discover
   storage/              SQLite + sqlc-generated queries + embed migrations
     migrations/           SQL schema
     queries/              SQL queries (sqlc input)
     db/                   sqlc output (не редагувати)
   config/               env loader + .env
+  visualizer/           go-chart/v2 PNG гістограма
   edbo/                 AES-CBC дешифрування ПІБ з vstup.edbo.gov.ua (експериментально)
 ```
 
-## 📦 Як бібліотека
+> **Чому все в `internal/`, а не `pkg/`:** один модуль = один застосунок,
+> зовнішнього споживача немає. Доменне ядро `internal/abit` — чисте й
+> presentation-agnostic, тож бот, CLI і майбутній веб-фронт компонують його
+> однаково (всі живуть у тому ж модулі). Виставляти крихкі скрейпери як
+> публічний `go get` API сенсу не мало.
 
-Все під `pkg/` — public API. Імпортується з будь-якого Go-проекту:
+## 📐 Як компонується доменне ядро
+
+`internal/abit` — pure, без I/O. Приклад потоку (так само його кличе і бот, і
+майбутній веб):
 
 ```go
 import (
     "context"
-    "github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
-    "github.com/OlexiyOdarchuk/abit-assistant/pkg/parser/osvita"
-    "github.com/OlexiyOdarchuk/abit-assistant/pkg/parser/abitpoisk"
+    "github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
+    "github.com/OlexiyOdarchuk/abit-assistant/internal/parser/osvita"
+    "github.com/OlexiyOdarchuk/abit-assistant/internal/parser/abitpoisk"
 )
 
 ctx := context.Background()
@@ -96,7 +102,7 @@ c := abitpoisk.New(abitpoisk.WithInsecureTLS())
 entries, _ := c.Search(ctx, "Бовкун О В")
 ```
 
-Усі функції в `pkg/abit/` pure — без I/O. Парсери ходять у мережу, але приймають `context.Context` і безпечні до cancel.
+Усі функції в `internal/abit/` pure — без I/O. Парсери ходять у мережу, але приймають `context.Context` і безпечні до cancel.
 
 ## 🚀 Запуск бота
 
