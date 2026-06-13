@@ -11,16 +11,11 @@ import (
 )
 
 // handleFilters returns the galuz + region option tables for the discover
-// pickers.
-func (s *Server) handleFilters(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), apiTimeout)
-	defer cancel()
-	f, err := s.deps.Discover.Filters(ctx)
-	if err != nil {
-		s.log.WarnContext(ctx, "filters", "err", err)
-		writeErr(w, http.StatusBadGateway, "не вдалося завантажити фільтри")
-		return
-	}
+// pickers. These are static reference data (oblast + галузь codes are stable
+// across campaigns), so we serve them instantly without touching osvita —
+// the picker must never wait on a live scrape.
+func (s *Server) handleFilters(w http.ResponseWriter, _ *http.Request) {
+	f := osvita.StaticFilters()
 	writeJSON(w, http.StatusOK, filtersResp{
 		Regions:    regionsDTO(f.Regions),
 		Industries: industriesDTO(f.Industries),

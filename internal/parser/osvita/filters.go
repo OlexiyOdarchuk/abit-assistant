@@ -39,6 +39,56 @@ var GaluzLetters = map[int]string{
 	171: "K", // Безпека та оборона
 }
 
+// StaticFilters returns the region + industry tables as known constants,
+// avoiding a live /spec/ fetch just to populate a picker. Oblast codes (the
+// rNN numbering, Київ=27) and the 11 галузі are stable across campaigns;
+// FetchFilters remains for verification. The presentation layer should use
+// this so the discovery picker loads instantly and offline.
+func StaticFilters() Filters {
+	return Filters{
+		Regions: []FilterOption{
+			{Code: 27, Name: "Київ"},
+			{Code: 3, Name: "Вінницька область"},
+			{Code: 4, Name: "Волинська область"},
+			{Code: 5, Name: "Дніпропетровська область"},
+			{Code: 6, Name: "Донецька область"},
+			{Code: 7, Name: "Житомирська область"},
+			{Code: 8, Name: "Закарпатська область"},
+			{Code: 9, Name: "Запорізька область"},
+			{Code: 10, Name: "Івано-Франківська область"},
+			{Code: 11, Name: "Київська область"},
+			{Code: 12, Name: "Кіровоградська область"},
+			{Code: 13, Name: "Луганська область"},
+			{Code: 14, Name: "Львівська область"},
+			{Code: 15, Name: "Миколаївська область"},
+			{Code: 16, Name: "Одеська область"},
+			{Code: 17, Name: "Полтавська область"},
+			{Code: 18, Name: "Рівненська область"},
+			{Code: 19, Name: "Сумська область"},
+			{Code: 20, Name: "Тернопільська область"},
+			{Code: 21, Name: "Харківська область"},
+			{Code: 22, Name: "Херсонська область"},
+			{Code: 23, Name: "Хмельницька область"},
+			{Code: 24, Name: "Черкаська область"},
+			{Code: 25, Name: "Чернівецька область"},
+			{Code: 26, Name: "Чернігівська область"},
+		},
+		Industries: []FilterOption{
+			{Code: 161, Name: "Освіта"},
+			{Code: 162, Name: "Культура, мистецтво та гуманітарні науки"},
+			{Code: 163, Name: "Соціальні науки, журналістика, інформація та міжнародні відносини"},
+			{Code: 164, Name: "Бізнес, адміністрування та право"},
+			{Code: 165, Name: "Природничі науки, математика та статистика"},
+			{Code: 166, Name: "Інформаційні технології"},
+			{Code: 167, Name: "Інженерія, виробництво та будівництво"},
+			{Code: 168, Name: "Сільське, лісове, рибне господарство та ветеринарна медицина"},
+			{Code: 169, Name: "Охорона здоров’я та соціальне забезпечення"},
+			{Code: 170, Name: "Транспорт та послуги"},
+			{Code: 171, Name: "Безпека та оборона"},
+		},
+	}
+}
+
 // Filters bundles the option tables scraped from the /spec/ form.
 type Filters struct {
 	// Regions are the oblasts; Code matches the rNN segment of program URLs

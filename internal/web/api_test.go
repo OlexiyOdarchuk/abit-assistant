@@ -110,12 +110,33 @@ func TestAPI_Filters(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(resp.Industries) != 1 || resp.Industries[0].Letter != "F" {
-		t.Errorf("industries = %+v, want one with letter F", resp.Industries)
+	// Served from static tables: 11 галузі (each with an A–K letter), 25 regions.
+	if len(resp.Industries) != 11 {
+		t.Errorf("industries = %d, want 11", len(resp.Industries))
 	}
-	if len(resp.Regions) != 1 || resp.Regions[0].Code != 21 {
-		t.Errorf("regions = %+v", resp.Regions)
+	for _, ind := range resp.Industries {
+		if ind.Letter == "" {
+			t.Errorf("industry %d has no letter", ind.Code)
+		}
+		if ind.Code == 166 && ind.Letter != "F" {
+			t.Errorf("ІТ (166) letter = %q, want F", ind.Letter)
+		}
 	}
+	if len(resp.Regions) != 25 {
+		t.Errorf("regions = %d, want 25", len(resp.Regions))
+	}
+	if find(resp.Regions, 21) != "Харківська область" {
+		t.Errorf("region 21 = %q, want Харківська область", find(resp.Regions, 21))
+	}
+}
+
+func find(regions []optionDTO, code int) string {
+	for _, r := range regions {
+		if r.Code == code {
+			return r.Name
+		}
+	}
+	return ""
 }
 
 func TestAPI_Analyze(t *testing.T) {
