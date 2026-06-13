@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 )
 
 func TestParseProgramURL(t *testing.T) {

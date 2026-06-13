@@ -6,7 +6,7 @@ package parser
 import (
 	"context"
 
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 )
 
 // Source fetches data about a single competitive offer.

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 )
 
 // EnrichedAbiturient pairs an Abiturient with the other applications the

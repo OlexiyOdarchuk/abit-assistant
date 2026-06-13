@@ -20,10 +20,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/edbo"
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/parser/abitpoisk"
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/parser/osvita"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser/abitpoisk"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser/osvita"
 )
 
 func main() {

@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/html"
 )

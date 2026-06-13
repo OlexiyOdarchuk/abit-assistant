@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 	"github.com/PuerkitoBio/goquery"
 )
 

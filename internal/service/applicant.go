@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
 )
 
 // ApplicantSearcher is the minimal interface ApplicantService needs from

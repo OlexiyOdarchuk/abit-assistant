@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser/osvita"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/service"
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/parser/osvita"
 )
 
 type fakeBrowser struct {

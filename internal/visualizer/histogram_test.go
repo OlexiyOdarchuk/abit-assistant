@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 )
 
 // pngHeader is the 8-byte signature every valid PNG file begins with.

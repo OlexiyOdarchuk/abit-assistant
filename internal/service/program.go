@@ -14,9 +14,9 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/parser"
 )
 
 // ProgramService is the read-side use case for "give me the applicants

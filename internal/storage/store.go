@@ -22,8 +22,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage/db"
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
 )
 
 //go:embed migrations/*.sql

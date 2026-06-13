@@ -56,7 +56,7 @@ func ParseFilters(doc *goquery.Document) Filters {
 
 func parseSelectOptions(doc *goquery.Document, name string) []FilterOption {
 	var out []FilterOption
-	doc.Find("select[name="+name+"]").First().Find("option").Each(func(_ int, opt *goquery.Selection) {
+	doc.Find("select[name=" + name + "]").First().Find("option").Each(func(_ int, opt *goquery.Selection) {
 		val, ok := opt.Attr("value")
 		if !ok {
 			return

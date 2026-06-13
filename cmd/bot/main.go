@@ -21,10 +21,10 @@ import (
 
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/bot"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/config"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser/abitpoisk"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser/osvita"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/service"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/parser/abitpoisk"
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/parser/osvita"
 )
 
 const (

@@ -13,10 +13,10 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/bot/callback"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/visualizer"
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
 )
 
 const (

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/service"
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
 )
 
 type fakeSearcher struct {

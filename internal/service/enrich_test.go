@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/service"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
-	"github.com/OlexiyOdarchuk/abit-assistant/pkg/abit"
 )
 
 func newEnrichSvc(t *testing.T, searcher service.ApplicantSearcher) *service.EnrichService {
