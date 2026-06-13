@@ -26,3 +26,9 @@ tools/
 *.test
 *.out
 coverage.txt
+
+# Web frontend
+/web/node_modules/
+/web/dist/
+# NOTE: internal/web/dist (the built SPA) IS tracked — go:embed needs it at
+# build time so `go build ./...` works without running npm.
