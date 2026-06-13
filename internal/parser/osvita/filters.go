@@ -20,6 +20,25 @@ type FilterOption struct {
 	Name string
 }
 
+// GaluzLetters maps osvita's industryId to the official галузь-знань letter
+// code that prefixes its specialties (e.g. F3 Комп'ютерні науки → F).
+// Determined empirically from /spec/ listings; the 11 osvita industries map
+// one-to-one onto letters A–K. Used by presentation layers (bot, web) to
+// label the galuz picker.
+var GaluzLetters = map[int]string{
+	161: "A", // Освіта
+	162: "B", // Культура, мистецтво та гуманітарні науки
+	163: "C", // Соціальні науки, журналістика, інформація
+	164: "D", // Бізнес, адміністрування та право
+	165: "E", // Природничі науки, математика та статистика
+	166: "F", // Інформаційні технології
+	167: "G", // Інженерія, виробництво та будівництво
+	168: "H", // Сільське, лісове, рибне господарство та ветеринарія
+	169: "I", // Охорона здоров'я та соціальне забезпечення
+	170: "J", // Транспорт та послуги
+	171: "K", // Безпека та оборона
+}
+
 // Filters bundles the option tables scraped from the /spec/ form.
 type Filters struct {
 	// Regions are the oblasts; Code matches the rNN segment of program URLs

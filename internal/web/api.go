@@ -1,0 +1,172 @@
+package web
+
+import (
+	"context"
+	"errors"
+	"net/http"
+
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser/osvita"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/service"
+)
+
+// handleFilters returns the galuz + region option tables for the discover
+// pickers.
+func (s *Server) handleFilters(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), apiTimeout)
+	defer cancel()
+	f, err := s.deps.Discover.Filters(ctx)
+	if err != nil {
+		s.log.WarnContext(ctx, "filters", "err", err)
+		writeErr(w, http.StatusBadGateway, "не вдалося завантажити фільтри")
+		return
+	}
+	writeJSON(w, http.StatusOK, filtersResp{
+		Regions:    regionsDTO(f.Regions),
+		Industries: industriesDTO(f.Industries),
+	})
+}
+
+// handleAnalyze fetches a program, scores the user, and returns the analysis
+// plus the competitive list.
+func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL     string     `json:"url"`
+		Profile profileReq `json:"profile"`
+	}
+	if err := decodeBody(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, "некоректний запит")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), apiTimeout)
+	defer cancel()
+
+	prog, err := s.deps.Program.Fetch(ctx, req.URL)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "не вдалося отримати дані програми")
+		return
+	}
+	abits := abit.Decode(prog)
+	score := abit.ComputeRating(prog, req.Profile.rating())
+	analysis := abit.Analyze(prog, abits, abit.AnalyzeInput{UserScore: score, UserQuotas: req.Profile.Quotas})
+
+	apps := make([]applicantDTO, len(abits))
+	for i, ab := range abits {
+		apps[i] = applicantDTO{Abiturient: ab, Competitor: score > 0 && abit.IsCompetitor(ab, score)}
+	}
+	writeJSON(w, http.StatusOK, analyzeResp{
+		Program: metaOf(prog, req.URL), UserScore: score, Analysis: analysis, Applicants: apps,
+	})
+}
+
+// handleDiscover runs the "where can I get in" search.
+func (s *Server) handleDiscover(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Galuz      int        `json:"galuz"`
+		Regions    []int      `json:"regions"`
+		BudgetOnly bool       `json:"budgetOnly"`
+		Limit      int        `json:"limit"`
+		Profile    profileReq `json:"profile"`
+	}
+	if err := decodeBody(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, "некоректний запит")
+		return
+	}
+	if req.Limit <= 0 || req.Limit > 60 {
+		req.Limit = 20
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), apiTimeout)
+	defer cancel()
+
+	res, err := s.deps.Discover.WhereCanIGetIn(ctx, req.Profile.discoverInput(), req.Limit,
+		discoverFilters(req.Galuz, req.Regions, req.BudgetOnly)...)
+	if err != nil {
+		s.log.WarnContext(ctx, "discover", "err", err)
+		writeErr(w, http.StatusBadGateway, "пошук не вдався")
+		return
+	}
+	matches := make([]matchDTO, len(res.Matches))
+	for i, m := range res.Matches {
+		matches[i] = matchOf(m)
+	}
+	writeJSON(w, http.StatusOK, discoverResp{Found: res.Found, Matches: matches})
+}
+
+// handleSimulate runs the priority simulation on a program.
+func (s *Server) handleSimulate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL     string     `json:"url"`
+		Profile profileReq `json:"profile"`
+	}
+	if err := decodeBody(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, "некоректний запит")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), apiTimeout)
+	defer cancel()
+
+	prog, err := s.deps.Program.Fetch(ctx, req.URL)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "не вдалося отримати дані програми")
+		return
+	}
+	score := abit.ComputeRating(prog, req.Profile.rating())
+	if score <= 0 {
+		writeErr(w, http.StatusBadRequest, "заповни профіль — без власного балу немає що уточнювати")
+		return
+	}
+	res, err := s.deps.Simulate.Simulate(ctx, prog, abit.Decode(prog),
+		service.SimInput{UserScore: score, UserQuotas: req.Profile.Quotas})
+	if err != nil {
+		s.log.WarnContext(ctx, "simulate", "err", err)
+		writeErr(w, http.StatusBadGateway, "симуляція не вдалася")
+		return
+	}
+	deps := make([]departureDTO, len(res.Departures))
+	for i, d := range res.Departures {
+		deps[i] = departureDTO{Name: d.Name, University: d.University, Priority: d.Priority, Predicted: d.Predicted}
+	}
+	writeJSON(w, http.StatusOK, simulateResp{
+		Baseline: res.Baseline, Refined: res.Refined, Departures: deps,
+		LookedUp: res.LookedUp, Masked: res.Masked, Capped: res.Capped,
+	})
+}
+
+// handleApplicant returns an applicant's other applications from abit-poisk.
+func (s *Server) handleApplicant(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := decodeBody(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, "некоректний запит")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), apiTimeout)
+	defer cancel()
+
+	entries, err := s.deps.Applicant.Search(ctx, req.Name)
+	if err != nil {
+		if errors.Is(err, abit.ErrNoData) {
+			writeJSON(w, http.StatusOK, []abit.ApplicantEntry{})
+			return
+		}
+		s.log.WarnContext(ctx, "applicant", "err", err)
+		writeErr(w, http.StatusBadGateway, "не вдалося знайти інші заяви")
+		return
+	}
+	writeJSON(w, http.StatusOK, entries)
+}
+
+// discoverFilters builds one SpecFilter per chosen region (or a single
+// all-Ukraine filter), mirroring the bot's logic. budgetOnly defaults the
+// funding scope.
+func discoverFilters(galuz int, regions []int, budgetOnly bool) []osvita.SpecFilter {
+	if len(regions) == 0 {
+		return []osvita.SpecFilter{{Industry: galuz, BudgetOnly: budgetOnly}}
+	}
+	out := make([]osvita.SpecFilter, 0, len(regions))
+	for _, region := range regions {
+		out = append(out, osvita.SpecFilter{Industry: galuz, Region: region, BudgetOnly: budgetOnly})
+	}
+	return out
+}

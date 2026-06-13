@@ -111,11 +111,11 @@ func TestDistinctSpecs(t *testing.T) {
 
 func TestGaluzLetters(t *testing.T) {
 	// All 11 osvita industries map to a distinct letter A–K.
-	if len(galuzLetter) != 11 {
-		t.Fatalf("galuzLetter has %d entries, want 11", len(galuzLetter))
+	if len(osvita.GaluzLetters) != 11 {
+		t.Fatalf("osvita.GaluzLetters has %d entries, want 11", len(osvita.GaluzLetters))
 	}
 	seen := map[string]bool{}
-	for code, letter := range galuzLetter {
+	for code, letter := range osvita.GaluzLetters {
 		if len(letter) != 1 || letter[0] < 'A' || letter[0] > 'K' {
 			t.Errorf("industry %d → %q is not a single A–K letter", code, letter)
 		}
@@ -125,8 +125,8 @@ func TestGaluzLetters(t *testing.T) {
 		seen[letter] = true
 	}
 	// Spot-check the anchor we verified live.
-	if galuzLetter[166] != "F" {
-		t.Errorf("ІТ (166) should be F, got %q", galuzLetter[166])
+	if osvita.GaluzLetters[166] != "F" {
+		t.Errorf("ІТ (166) should be F, got %q", osvita.GaluzLetters[166])
 	}
 }
 
