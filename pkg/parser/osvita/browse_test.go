@@ -93,6 +93,18 @@ func TestSpecFilterPath(t *testing.T) {
 			offset: 0,
 			want:   "/spec/1-40-1/21-0-0-0-0-0/",
 		},
+		{
+			name:   "budget-only IT galuz in kharkiv",
+			filter: SpecFilter{Region: 21, Industry: 166, BudgetOnly: true},
+			offset: 0,
+			want:   "/spec/1-40-1/21-166-0-0-1-0/",
+		},
+		{
+			name:   "specific university",
+			filter: SpecFilter{University: 318},
+			offset: 0,
+			want:   "/spec/1-40-1/0-0-0-318-0-0/",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

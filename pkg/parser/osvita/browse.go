@@ -42,17 +42,25 @@ const (
 )
 
 // SpecFilter selects programs on the /spec/ listing. The zero value lists
-// every full-time bachelor (ПЗСО) program in the country; set Region and/or
-// Specialty to narrow. Codes come from the form's <select> options on osvita
-// (see ParseSpecFilters) — Region uses the same numbering as the rNN segment
-// in a program URL (e.g. 21 = Kharkiv, 27 = Kyiv).
+// every full-time bachelor (ПЗСО) program in the country; set the fields to
+// narrow. Codes come from osvita: Region/Industry from the form's <select>
+// options, University from the universities directory (see FetchUniversities),
+// Specialty from the cascade endpoint. Region uses the same numbering as the
+// rNN segment in a program URL (e.g. 21 = Kharkiv, 27 = Kyiv); University uses
+// the same code as the middle segment of a program URL.
+//
+// The full path, reproduced from osvita's own form-submit JS:
+//
+//	/spec/<okr>-<edubase>-<eduform>/<region>-<industryId>-<specialityId>-<universityId>-<budget>-<offset>/
 type SpecFilter struct {
-	Level     int // okr: education level; 0 → бакалавр (1)
-	Basis     int // edubase: admission basis; 0 → ПЗСО (40)
-	Form      int // eduform: study form; 0 → денна (1)
-	Region    int // region/oblast code; 0 → any
-	Industry  int // industryId (галузь); 0 → any
-	Specialty int // specialityId; 0 → any
+	Level      int  // okr: education level; 0 → бакалавр (1)
+	Basis      int  // edubase: admission basis; 0 → ПЗСО (40)
+	Form       int  // eduform: study form; 0 → денна (1)
+	Region     int  // region/oblast code; 0 → any
+	Industry   int  // industryId (галузь знань); 0 → any
+	Specialty  int  // specialityId; 0 → any
+	University int  // universityId; 0 → any
+	BudgetOnly bool // budget slot = 1 → only state-funded offers
 }
 
 // path renders the /spec/ path for the given pagination offset.
@@ -67,8 +75,12 @@ func (f SpecFilter) path(offset int) string {
 	if form == 0 {
 		form = defaultForm
 	}
-	return fmt.Sprintf("/spec/%d-%d-%d/%d-%d-%d-0-0-%d/",
-		level, basis, form, f.Region, f.Industry, f.Specialty, offset)
+	budget := 0
+	if f.BudgetOnly {
+		budget = 1
+	}
+	return fmt.Sprintf("/spec/%d-%d-%d/%d-%d-%d-%d-%d-%d/",
+		level, basis, form, f.Region, f.Industry, f.Specialty, f.University, budget, offset)
 }
 
 // SpecProgram is one row of the /spec/ listing. URL is absolute and ready to
