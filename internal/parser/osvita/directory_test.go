@@ -46,3 +46,20 @@ func TestMatchUniversity(t *testing.T) {
 		})
 	}
 }
+
+func TestMatchUniversity_TokenSubset(t *testing.T) {
+	// Mirrors the live case: the /spec/ listing name omits the middle
+	// "ім. М. Є. Жуковського" that the directory keeps. A substring match
+	// failed here; token-subset must succeed.
+	dir := []University{
+		{ID: 34, ShortName: "ХАІ", FullName: `Національний аерокосмічний університет ім. М. Є. Жуковського "Харківський авіаційний інститут"`},
+		{ID: 7, ShortName: "", FullName: "Київський національний університет імені Тараса Шевченка"},
+	}
+	if u, ok := MatchUniversity(dir, `Національний аерокосмічний університет "Харківський авіаційний інститут"`); !ok || u.ID != 34 {
+		t.Errorf("token-subset match = id %d, ok %v; want 34", u.ID, ok)
+	}
+	// A single generic word must NOT match (token-subset needs ≥2 words).
+	if u, ok := MatchUniversity(dir, "університет"); ok {
+		t.Errorf("single generic word matched id %d, want no match", u.ID)
+	}
+}

@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 )
 
 const universitiesPath = "/doc/json/universities_0.json"
@@ -92,22 +91,42 @@ func MatchUniversity(dir []University, name string) (University, bool) {
 			if n == target {
 				return u, true // exact wins immediately
 			}
-			if strings.Contains(n, target) || strings.Contains(target, n) {
-				// The overlap is the shorter of the two names. Require it to
-				// be non-trivial so a short generic token can't latch onto
-				// many institutions, and score by overlap length (longer
-				// shared name = more specific match).
-				overlap := min(utf8.RuneCountInString(n), utf8.RuneCountInString(target))
-				if overlap < 5 {
-					continue
-				}
-				if overlap > bestScore {
-					best, bestScore, found = u, overlap, true
-				}
+			// Token-subset: every word of the shorter name appears in the
+			// longer. This survives mid-name differences (the listing omits
+			// "ім. М. Є. Жуковського" the directory keeps) that a raw
+			// substring check fails. Score by shared-word count — more words
+			// in common = more specific match — so the best candidate wins.
+			if score, ok := tokenSubsetScore(n, target); ok && score > bestScore {
+				best, bestScore, found = u, score, true
 			}
 		}
 	}
 	return best, found
+}
+
+// tokenSubsetScore reports whether every word of the shorter name appears in
+// the longer (a token subset), returning the shared-word count as a score.
+// Requires the shorter name to have ≥2 words so a single generic word can't
+// match many institutions.
+func tokenSubsetScore(a, b string) (int, bool) {
+	at, bt := strings.Fields(a), strings.Fields(b)
+	short, long := at, bt
+	if len(short) > len(long) {
+		short, long = long, short
+	}
+	if len(short) < 2 {
+		return 0, false
+	}
+	set := make(map[string]struct{}, len(long))
+	for _, t := range long {
+		set[t] = struct{}{}
+	}
+	for _, t := range short {
+		if _, ok := set[t]; !ok {
+			return 0, false
+		}
+	}
+	return len(short), true
 }
 
 // normalizeName lowercases, drops quotes/punctuation, and collapses

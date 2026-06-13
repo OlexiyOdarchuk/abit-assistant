@@ -214,11 +214,14 @@ func parseSpecListing(doc *goquery.Document, base string) []SpecProgram {
 		if b := row.Find("b").First(); b.Length() > 0 {
 			prog.Specialty = compactText(b.Text())
 		}
-		// University: the row's anchor whose text starts with a "<code>. " prefix.
+		// University: the row's anchor whose text starts with a "<code>. "
+		// prefix. Strip that institution-code prefix — it's noise (the code
+		// is already the URL's middle segment) that otherwise pollutes
+		// display labels and breaks name matching against the directory.
 		row.Find("a").EachWithBreak(func(_ int, a *goquery.Selection) bool {
 			t := compactText(a.Text())
-			if instPrefixRe.MatchString(t) {
-				prog.University = t
+			if loc := instPrefixRe.FindStringIndex(t); loc != nil {
+				prog.University = strings.TrimSpace(t[loc[1]:])
 				return false
 			}
 			return true

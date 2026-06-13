@@ -8,6 +8,7 @@
 package osvita
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -213,8 +214,28 @@ func formValues(year, sid, uid string, last int) url.Values {
 
 // rawChunk is the decoded JSON of one page.
 type rawChunk struct {
-	Requests []abit.RawRequest                 `json:"requests"`
-	Subjects map[string]abit.ApplicantSubjects `json:"requests_subjects"`
+	Requests []abit.RawRequest `json:"requests"`
+	Subjects rawSubjects       `json:"requests_subjects"`
+}
+
+// rawSubjects is requests_subjects, which osvita serves as a JSON object
+// keyed by applicant id — EXCEPT when there are none, where it sends an empty
+// array `[]` instead of `{}`. Decoding `[]` into a map fails and would sink
+// the whole page (observed live on some programs), so tolerate both.
+type rawSubjects map[string]abit.ApplicantSubjects
+
+func (s *rawSubjects) UnmarshalJSON(b []byte) error {
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 || b[0] == '[' || string(b) == "null" {
+		*s = rawSubjects{}
+		return nil
+	}
+	var m map[string]abit.ApplicantSubjects
+	if err := json.Unmarshal(b, &m); err != nil {
+		return err
+	}
+	*s = m
+	return nil
 }
 
 // fetchChunk runs the two-step API dance: POST to get a signed JSON URL,
