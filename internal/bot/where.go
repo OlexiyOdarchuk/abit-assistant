@@ -607,12 +607,41 @@ func loadBrowsed(data map[string]any) []discProg {
 
 // --- view builders --------------------------------------------------------
 
+// galuzLetter maps osvita's industryId to the official галузь-знань letter
+// code that prefixes its specialties (e.g. F3 Комп'ютерні науки → F).
+// Determined empirically from /spec/ listings; the 11 osvita industries map
+// one-to-one onto letters A–K.
+var galuzLetter = map[int]string{
+	161: "A", // Освіта
+	162: "B", // Культура, мистецтво та гуманітарні науки
+	163: "C", // Соціальні науки, журналістика, інформація
+	164: "D", // Бізнес, адміністрування та право
+	165: "E", // Природничі науки, математика та статистика
+	166: "F", // Інформаційні технології
+	167: "G", // Інженерія, виробництво та будівництво
+	168: "H", // Сільське, лісове, рибне господарство та ветеринарія
+	169: "I", // Охорона здоров'я та соціальне забезпечення
+	170: "J", // Транспорт та послуги
+	171: "K", // Безпека та оборона
+}
+
 func galuzKeyboard(f osvita.Filters) *tele.ReplyMarkup {
+	// Order by the galuz letter (A, B, C…) rather than the form's by-name
+	// order — the letters double as a quick alphabetical index.
+	opts := append([]osvita.FilterOption(nil), f.Industries...)
+	slices.SortFunc(opts, func(a, b osvita.FilterOption) int {
+		return strings.Compare(galuzLetter[a.Code], galuzLetter[b.Code])
+	})
+
 	kb := &tele.ReplyMarkup{}
-	rows := make([]tele.Row, 0, len(f.Industries)+1)
-	for _, opt := range f.Industries {
+	rows := make([]tele.Row, 0, len(opts)+1)
+	for _, opt := range opts {
+		label := opt.Name
+		if l := galuzLetter[opt.Code]; l != "" {
+			label = l + " — " + opt.Name
+		}
 		rows = append(rows, kb.Row(kb.Data(
-			truncateRunes(opt.Name, 40), btnUniqueDiscoverGaluz, strconv.Itoa(opt.Code))))
+			truncateRunes(label, 42), btnUniqueDiscoverGaluz, strconv.Itoa(opt.Code))))
 	}
 	rows = append(rows, kb.Row(kb.Data("⬅️ Меню", btnUniqueMenu)))
 	kb.Inline(rows...)
