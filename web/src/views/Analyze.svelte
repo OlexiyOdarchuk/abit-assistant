@@ -1,6 +1,6 @@
 <script>
   import { analyze, simulate } from '../lib/api.js'
-  import { profile, profileFilled, saveList, removeList, isSaved, addHistory } from '../lib/state.svelte.js'
+  import { profile, profileFilled, saveList, removeList, isSaved, addHistory, history } from '../lib/state.svelte.js'
   import { chanceMeta } from '../lib/chance.js'
   import Chance from '../lib/Chance.svelte'
   import Applicants from '../lib/Applicants.svelte'
@@ -75,6 +75,8 @@
     creative: profile.creative,
   })
 
+  const open = (u) => (location.hash = '#/analyze/' + encodeURIComponent(u))
+
   function toggleSave() {
     if (!result) return
     if (isSaved(result.program.url)) removeList(result.program.url)
@@ -115,6 +117,20 @@
   {#if error}<p class="error">⚠️ {error}</p>{/if}
 
   {#if loading}<Loading phrases={analyzePhrases} />{/if}
+
+  {#if !result && !loading && history.length}
+    <div class="recent">
+      <h3>Нещодавні</h3>
+      <div class="recent-rows">
+        {#each history.slice(0, 6) as h (h.url)}
+          <button class="recent-row" onclick={() => open(h.url)}>
+            <strong>{h.university}</strong>
+            <span class="muted">{h.program}</span>
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/if}
 
   {#if result}
     <article class="card prog">
@@ -218,4 +234,13 @@
   .dep { margin: 0.5rem 0 0; padding-left: 1.1rem; font-size: 0.9rem; }
   .tiny { font-size: 0.78rem; }
   .muted { color: var(--muted); }
+  .recent-rows { display: flex; flex-direction: column; gap: 0.5rem; }
+  .recent-row {
+    display: flex; flex-direction: column; gap: 0.1rem; text-align: left;
+    border: 1px solid var(--border); border-radius: 12px; background: var(--card);
+    padding: 0.6rem 0.85rem; cursor: pointer; font: inherit; color: inherit; min-width: 0;
+  }
+  .recent-row:hover { background: var(--hover); }
+  .recent-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .recent-row .muted { font-size: 0.85rem; }
 </style>

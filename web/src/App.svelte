@@ -32,6 +32,7 @@
   }
 
   const nav = [
+    { id: 'home', label: 'Головна' },
     { id: 'analyze', label: 'Аналіз' },
     { id: 'discover', label: 'Куди вступлю' },
     { id: 'lists', label: 'Збережені' },
