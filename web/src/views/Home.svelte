@@ -1,5 +1,6 @@
 <script>
   import { profile, lists, history, SUBJECTS } from '../lib/state.svelte.js'
+  import Mascot from '../lib/Mascot.svelte'
 
   const goAnalyze = (url) => (location.hash = '#/analyze/' + encodeURIComponent(url))
 
@@ -23,8 +24,11 @@
 
 <section class="dash">
   <header class="welcome rise">
-    <h1>Куди далі?</h1>
-    <p class="lead">Профіль готовий. Обери, що робимо — однаково корисно.</p>
+    <Mascot size={56} />
+    <div>
+      <h1>Куди далі?</h1>
+      <p class="lead">Профіль готовий. Обери, що робимо — однаково корисно.</p>
+    </div>
   </header>
 
   <div class="profile-bar rise">
@@ -79,8 +83,9 @@
 </section>
 
 <style>
-  .welcome h1 { font-size: clamp(1.8rem, 6vw, 2.6rem); }
-  .lead { color: var(--muted); margin-top: -0.3rem; }
+  .welcome { display: flex; align-items: center; gap: 1rem; }
+  .welcome h1 { font-size: clamp(1.7rem, 5.5vw, 2.4rem); margin-bottom: 0.2rem; }
+  .lead { color: var(--muted); margin: 0; }
 
   .profile-bar {
     display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;

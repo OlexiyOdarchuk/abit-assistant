@@ -5,6 +5,8 @@
   import Chance from '../lib/Chance.svelte'
   import Applicants from '../lib/Applicants.svelte'
   import Loading from '../lib/Loading.svelte'
+  import Histogram from '../lib/Histogram.svelte'
+  import ChanceLegend from '../lib/ChanceLegend.svelte'
 
   const analyzePhrases = [
     'Відкриваю сторінку програми…',
@@ -138,6 +140,9 @@
           {#if an.my_real_rank > 0}<div><dt>Твоє місце</dt><dd>{an.my_real_rank}</dd></div>{/if}
         </dl>
         {#if an.advice}<p class="advice">💡 {an.advice}</p>{/if}
+
+        <Histogram scores={result.applicants.map((a) => a.score)} userScore={result.userScore} />
+        <ChanceLegend />
       {:else}
         <p class="hint">Заповни профіль, щоб порахувати шанси. Нижче — повний список заяв.</p>
       {/if}

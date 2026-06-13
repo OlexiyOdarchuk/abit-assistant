@@ -36,6 +36,12 @@
     { id: 'discover', label: 'Куди вступлю' },
     { id: 'lists', label: 'Збережені' },
   ]
+  const bottomNav = [
+    { id: 'home', label: 'Головна', icon: '🏠' },
+    { id: 'analyze', label: 'Аналіз', icon: '🔎' },
+    { id: 'discover', label: 'Підбір', icon: '🧭' },
+    { id: 'lists', label: 'Списки', icon: '💾' },
+  ]
 </script>
 
 {#if !ui.onboarded}
@@ -79,6 +85,15 @@
       Дані: vstup.osvita.ua · abit-poisk.org.ua ·
       <a href="https://t.me/AbitAssistant_bot" target="_blank" rel="noreferrer">бот у Telegram</a>
     </footer>
+
+    <nav class="bottom">
+      {#each bottomNav as n}
+        <a href="#/{n.id}" class:active={route.name === n.id}>
+          <span class="bi">{n.icon}</span>
+          <span class="bl">{n.label}</span>
+        </a>
+      {/each}
+    </nav>
   </div>
 {/if}
 
@@ -150,4 +165,39 @@
     border-top: 1px solid var(--border);
   }
   footer a { color: var(--accent); }
+
+  /* bottom tab bar — mobile only */
+  .bottom { display: none; }
+  @media (max-width: 640px) {
+    .topbar nav { display: none; } /* move primary nav to the bottom bar */
+    main { padding-bottom: 5.5rem; }
+    footer { margin-bottom: 4rem; }
+    .bottom {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 20;
+      display: flex;
+      justify-content: space-around;
+      background: color-mix(in srgb, var(--card) 92%, transparent);
+      backdrop-filter: blur(10px);
+      border-top: 1px solid var(--border);
+      padding: 0.4rem 0.3rem calc(0.4rem + env(safe-area-inset-bottom));
+    }
+    .bottom a {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.15rem;
+      text-decoration: none;
+      color: var(--muted);
+      font-size: 0.68rem;
+      font-weight: 600;
+      padding: 0.3rem 0.7rem;
+      border-radius: 12px;
+    }
+    .bottom a.active { color: var(--accent); background: var(--accent-soft); }
+    .bottom .bi { font-size: 1.25rem; line-height: 1; }
+  }
 </style>

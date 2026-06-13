@@ -1,6 +1,7 @@
 <script>
   import { profileFilled, completeOnboarding } from '../lib/state.svelte.js'
   import ProfileForm from '../lib/ProfileForm.svelte'
+  import Mascot from '../lib/Mascot.svelte'
 
   function finish() {
     if (!profileFilled()) return
@@ -11,9 +12,11 @@
 
 <div class="onb grid-bg">
   <div class="onb-card rise">
-    <span class="mark">◆</span>
-    <span class="badge">Крок 1 з 1 · обов'язково</span>
-    <h1>Почнемо з твоїх <span class="gradient-text">балів НМТ</span></h1>
+    <div class="head">
+      <Mascot size={64} />
+      <span class="badge">Крок 1 з 1 · обов'язково</span>
+    </div>
+    <h1>Привіт! Я <span class="gradient-text">Ромбік</span>. Почнемо з балів НМТ</h1>
     <p class="lead">
       Щоб порахувати твої шанси на бюджет і знайти реальних конкурентів, мені потрібні
       бали НМТ. Вони лишаються лише у твоєму браузері — нічого не зберігаємо.
@@ -40,9 +43,9 @@
     box-shadow: var(--shadow-lift);
     padding: clamp(1.4rem, 5vw, 2.4rem);
   }
-  .mark { font-size: 1.8rem; color: var(--accent); }
+  .head { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 0.4rem; }
   .badge {
-    display: inline-block; margin-left: 0.6rem;
+    display: inline-block;
     border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
     background: var(--accent-soft); color: var(--accent-ink);
     padding: 0.25rem 0.7rem; border-radius: 999px;
