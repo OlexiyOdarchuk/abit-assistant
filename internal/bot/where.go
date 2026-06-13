@@ -30,9 +30,10 @@ const (
 	fsmStateDiscover        = "discover.viewing"
 
 	// regions step
-	fsmKeyDiscGaluz   = "d_galuz" // int galuz code
-	fsmKeyDiscSel     = "d_sel"   // JSON []int selected region codes
-	fsmKeyDiscGalName = "d_gname" // galuz label (header)
+	fsmKeyDiscGaluz    = "d_galuz" // int galuz code
+	fsmKeyDiscSel      = "d_sel"   // JSON []int selected region codes
+	fsmKeyDiscGalName  = "d_gname" // galuz label (header)
+	fsmKeyDiscContract = "d_contract"
 	// results step
 	fsmKeyDiscRegNames = "d_rnames"  // joined region labels (header)
 	fsmKeyDiscBrowsed  = "d_browsed" // JSON []discProg (merged browse, capped)
@@ -100,12 +101,30 @@ func (b *Bot) handleDiscoverGaluz(c tele.Context) error {
 		return fmt.Errorf("не вдалося завантажити регіони: %w", err)
 	}
 	data := map[string]any{
-		fsmKeyDiscGaluz:   galuz,
-		fsmKeyDiscGalName: optionName(filters.Industries, galuz, "Усі галузі"),
-		fsmKeyDiscSel:     "[]",
+		fsmKeyDiscGaluz:    galuz,
+		fsmKeyDiscGalName:  optionName(filters.Industries, galuz, "Усі галузі"),
+		fsmKeyDiscSel:      "[]",
+		fsmKeyDiscContract: false,
 	}
 	if err := b.fsm.Set(context.Background(), senderID(c), fsmStateDiscoverRegions, data); err != nil {
 		b.log.Warn("discover regions fsm set", "err", err)
+	}
+	return b.renderRegionPicker(c)
+}
+
+// handleDiscoverBudgetTog flips the budget-only / +contract switch in the
+// region picker.
+func (b *Bot) handleDiscoverBudgetTog(c tele.Context) error {
+	ctx, cancel := context.WithTimeout(context.Background(), listsTimeout)
+	state, err := b.fsm.Get(ctx, senderID(c))
+	cancel()
+	if err != nil || state.Name != fsmStateDiscoverRegions {
+		return errors.New("сесія вибору завершилась — почни з /menu")
+	}
+	cur, _ := state.Data[fsmKeyDiscContract].(bool)
+	state.Data[fsmKeyDiscContract] = !cur
+	if err := b.fsm.Set(context.Background(), senderID(c), fsmStateDiscoverRegions, state.Data); err != nil {
+		b.log.Warn("discover budget set", "err", err)
 	}
 	return b.renderRegionPicker(c)
 }
@@ -149,6 +168,7 @@ func (b *Bot) renderRegionPicker(c tele.Context) error {
 	}
 	galName, _ := state.Data[fsmKeyDiscGalName].(string)
 	sel := decodeIntSlice(state.Data[fsmKeyDiscSel])
+	contract, _ := state.Data[fsmKeyDiscContract].(bool)
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "🧭 *Куди я вступлю* · %s\n\n", mdEscape(galName))
@@ -161,7 +181,7 @@ func (b *Bot) renderRegionPicker(c tele.Context) error {
 		}
 		fmt.Fprintf(&sb, "Обрано: *%s*\n\nДодай ще або тисни «🔎 Шукати».", mdEscape(strings.Join(names, ", ")))
 	}
-	return renderOrEdit(c, sb.String(), tele.ModeMarkdown, regionPickerKeyboard(filters, sel))
+	return renderOrEdit(c, sb.String(), tele.ModeMarkdown, regionPickerKeyboard(filters, sel, contract))
 }
 
 // handleDiscoverRun launches the search for the regions chosen in the
@@ -173,8 +193,9 @@ func (b *Bot) handleDiscoverRun(c tele.Context) error {
 	if err != nil || state.Name != fsmStateDiscoverRegions {
 		return errors.New("сесія вибору завершилась — почни з /menu")
 	}
+	contract, _ := state.Data[fsmKeyDiscContract].(bool)
 	return b.runDiscovery(ctx, c,
-		anyToInt(state.Data[fsmKeyDiscGaluz]), decodeIntSlice(state.Data[fsmKeyDiscSel]))
+		anyToInt(state.Data[fsmKeyDiscGaluz]), decodeIntSlice(state.Data[fsmKeyDiscSel]), contract)
 }
 
 // handleDiscoverBack re-runs the user's last discovery — used by the "back
@@ -188,13 +209,13 @@ func (b *Bot) handleDiscoverBack(c tele.Context) error {
 	if settings.LastDiscoverGaluz == 0 {
 		return errors.New("немає попереднього пошуку — почни з 🧭 у /menu")
 	}
-	return b.runDiscovery(ctx, c, settings.LastDiscoverGaluz, settings.LastDiscoverRegions)
+	return b.runDiscovery(ctx, c, settings.LastDiscoverGaluz, settings.LastDiscoverRegions, settings.LastDiscoverContract)
 }
 
 // runDiscovery browses galuz+regions, analyzes the first batch, stores the
 // result in FSM and renders page 0. It also persists the filter so a program
 // later opened from these results can re-run them ("back to results").
-func (b *Bot) runDiscovery(ctx context.Context, c tele.Context, galuz int, sel []int) error {
+func (b *Bot) runDiscovery(ctx context.Context, c tele.Context, galuz int, sel []int, contract bool) error {
 	uid := senderID(c)
 	in, ok := b.discoverInput(ctx, uid)
 	if !ok {
@@ -212,7 +233,7 @@ func (b *Bot) runDiscovery(ctx context.Context, c tele.Context, galuz int, sel [
 	}
 
 	_ = c.Notify(tele.Typing)
-	browsed, err := b.discoverSvc.Browse(ctx, discoverFilters(galuz, sel))
+	browsed, err := b.discoverSvc.Browse(ctx, discoverFilters(galuz, sel, contract))
 	if err != nil {
 		return fmt.Errorf("пошук не вдався: %w", err)
 	}
@@ -233,6 +254,7 @@ func (b *Bot) runDiscovery(ctx context.Context, c tele.Context, galuz int, sel [
 		fsmKeyDiscGaluz:    galuz,
 		fsmKeyDiscGalName:  galName,
 		fsmKeyDiscRegNames: regNames,
+		fsmKeyDiscContract: contract,
 		fsmKeyDiscFound:    found,
 		fsmKeyDiscPage:     0,
 		fsmKeyDiscOnlyPass: false,
@@ -244,19 +266,20 @@ func (b *Bot) runDiscovery(ctx context.Context, c tele.Context, galuz int, sel [
 	if err := b.fsm.Set(context.Background(), uid, fsmStateDiscover, data); err != nil {
 		b.log.Warn("discover fsm set", "err", err)
 	}
-	b.saveLastDiscover(ctx, uid, galuz, sel)
+	b.saveLastDiscover(ctx, uid, galuz, sel, contract)
 	return b.renderDiscoverPage(c, 0)
 }
 
 // saveLastDiscover persists the filter into user settings (read-modify-write
 // so other settings survive).
-func (b *Bot) saveLastDiscover(ctx context.Context, uid int64, galuz int, sel []int) {
+func (b *Bot) saveLastDiscover(ctx context.Context, uid int64, galuz int, sel []int, contract bool) {
 	settings, err := b.store.GetUserSettings(ctx, uid)
 	if err != nil {
 		return
 	}
 	settings.LastDiscoverGaluz = galuz
 	settings.LastDiscoverRegions = sel
+	settings.LastDiscoverContract = contract
 	if err := b.store.SetUserSettings(ctx, uid, settings); err != nil {
 		b.log.Warn("save last discover", "err", err)
 	}
@@ -360,7 +383,7 @@ func (b *Bot) handleDiscoverSaveSafe(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
 	uid := senderID(c)
-	rows, _, _, _, _, _, err := b.discoverState(c)
+	rows, _, _, _, _, _, _, err := b.discoverState(c)
 	if err != nil {
 		return err
 	}
@@ -417,6 +440,7 @@ type discoverViewInfo struct {
 	spec              string // active specialty filter ("" = none)
 	found, analyzed   int
 	onlyPass          bool
+	contract          bool // search included contract offers
 }
 
 // discoverView resolves the current results view from FSM, applying the
@@ -424,7 +448,7 @@ type discoverViewInfo struct {
 // a filter would empty the list. Both renderDiscoverPage and the result-open
 // handler use it, so a tapped button always opens the program it shows.
 func (b *Bot) discoverView(c tele.Context) (discoverViewInfo, error) {
-	rows, galName, regNames, found, onlyPass, spec, err := b.discoverState(c)
+	rows, galName, regNames, found, onlyPass, spec, contract, err := b.discoverState(c)
 	if err != nil {
 		return discoverViewInfo{}, err
 	}
@@ -451,7 +475,7 @@ func (b *Bot) discoverView(c tele.Context) (discoverViewInfo, error) {
 	return discoverViewInfo{
 		view: view, safe: safe, mid: mid, reach: reach,
 		galName: galName, regNames: regNames, spec: spec,
-		found: found, analyzed: len(rows), onlyPass: onlyPass,
+		found: found, analyzed: len(rows), onlyPass: onlyPass, contract: contract,
 	}, nil
 }
 
@@ -465,7 +489,11 @@ func (b *Bot) renderDiscoverPage(c tele.Context, page int) error {
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "🧭 *Куди я вступлю*\n\n📚 %s · 📍 %s\n", mdEscape(info.galName), mdEscape(info.regNames))
-	sb.WriteString("_бюджет · бакалавр · ПЗСО · денна_\n")
+	funding := "бюджет"
+	if info.contract {
+		funding = "бюджет+контракт"
+	}
+	fmt.Fprintf(&sb, "_%s · бакалавр · ПЗСО · денна_\n", funding)
 	if info.spec != "" {
 		fmt.Fprintf(&sb, "🎓 *%s*\n", mdEscape(info.spec))
 	}
@@ -531,12 +559,12 @@ func (b *Bot) discoverInput(ctx context.Context, uid int64) (service.DiscoverInp
 	}, true
 }
 
-func (b *Bot) discoverState(c tele.Context) (rows []discRow, galName, regNames string, found int, onlyPass bool, spec string, err error) {
+func (b *Bot) discoverState(c tele.Context) (rows []discRow, galName, regNames string, found int, onlyPass bool, spec string, contract bool, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), listsTimeout)
 	defer cancel()
 	state, gerr := b.fsm.Get(ctx, senderID(c))
 	if gerr != nil || state.Name != fsmStateDiscover {
-		return nil, "", "", 0, false, "", errors.New("сесія пошуку завершилась — почни з /menu")
+		return nil, "", "", 0, false, "", false, errors.New("сесія пошуку завершилась — почни з /menu")
 	}
 	if raw, _ := state.Data[fsmKeyDiscRows].(string); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &rows)
@@ -546,7 +574,8 @@ func (b *Bot) discoverState(c tele.Context) (rows []discRow, galName, regNames s
 	found = anyToInt(state.Data[fsmKeyDiscFound])
 	onlyPass, _ = state.Data[fsmKeyDiscOnlyPass].(bool)
 	spec, _ = state.Data[fsmKeyDiscSpec].(string)
-	return rows, galName, regNames, found, onlyPass, spec, nil
+	contract, _ = state.Data[fsmKeyDiscContract].(bool)
+	return rows, galName, regNames, found, onlyPass, spec, contract, nil
 }
 
 func (b *Bot) setDiscoverPage(c tele.Context, page int) {
@@ -590,11 +619,16 @@ func galuzKeyboard(f osvita.Filters) *tele.ReplyMarkup {
 	return kb
 }
 
-func regionPickerKeyboard(f osvita.Filters, sel []int) *tele.ReplyMarkup {
+func regionPickerKeyboard(f osvita.Filters, sel []int, contract bool) *tele.ReplyMarkup {
 	kb := &tele.ReplyMarkup{}
-	rows := make([]tele.Row, 0, len(f.Regions)/2+3)
+	rows := make([]tele.Row, 0, len(f.Regions)/2+4)
 	rows = append(rows, kb.Row(kb.Data(
 		fmt.Sprintf("🔎 Шукати%s", selSuffix(sel)), btnUniqueDiscoverRun)))
+	budgetLabel := "💰 Лише бюджет"
+	if contract {
+		budgetLabel = "💰 Бюджет + контракт"
+	}
+	rows = append(rows, kb.Row(kb.Data(budgetLabel, btnUniqueDiscoverBudgetTog)))
 
 	var row []tele.Btn
 	for _, opt := range f.Regions {
@@ -680,13 +714,14 @@ func specPickerKeyboard(specs []string) *tele.ReplyMarkup {
 
 // --- small helpers --------------------------------------------------------
 
-func discoverFilters(galuz int, regions []int) []osvita.SpecFilter {
+func discoverFilters(galuz int, regions []int, contract bool) []osvita.SpecFilter {
+	budgetOnly := !contract
 	if len(regions) == 0 {
-		return []osvita.SpecFilter{{Industry: galuz, BudgetOnly: true}}
+		return []osvita.SpecFilter{{Industry: galuz, BudgetOnly: budgetOnly}}
 	}
 	out := make([]osvita.SpecFilter, 0, len(regions))
 	for _, r := range regions {
-		out = append(out, osvita.SpecFilter{Industry: galuz, Region: r, BudgetOnly: true})
+		out = append(out, osvita.SpecFilter{Industry: galuz, Region: r, BudgetOnly: budgetOnly})
 	}
 	return out
 }

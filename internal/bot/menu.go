@@ -68,6 +68,7 @@ const (
 	btnUniqueDiscoverOnlyPassTog = "disc_pass" // toggle "only programs I'd pass"
 	btnUniqueDiscoverBack        = "disc_back" // from a program back to results
 	btnUniqueDiscoverSpec        = "disc_spec" // specialty filter: list / pick / clear
+	btnUniqueDiscoverBudgetTog   = "disc_bud"  // toggle budget-only vs +contract
 
 	// Saved lists.
 	btnUniqueListManage        = "l_mng"

@@ -40,12 +40,12 @@ func TestOptionName(t *testing.T) {
 
 func TestDiscoverFilters(t *testing.T) {
 	// No regions → single all-Ukraine budget filter.
-	one := discoverFilters(166, nil)
+	one := discoverFilters(166, nil, false)
 	if len(one) != 1 || one[0].Region != 0 || one[0].Industry != 166 || !one[0].BudgetOnly {
 		t.Errorf("all-Ukraine filter wrong: %+v", one)
 	}
 	// Multiple regions → one budget filter each.
-	many := discoverFilters(166, []int{21, 27})
+	many := discoverFilters(166, []int{21, 27}, false)
 	if len(many) != 2 || many[0].Region != 21 || many[1].Region != 27 {
 		t.Errorf("multi-region filters wrong: %+v", many)
 	}
@@ -53,6 +53,11 @@ func TestDiscoverFilters(t *testing.T) {
 		if f.Industry != 166 || !f.BudgetOnly {
 			t.Errorf("filter lost galuz/budget: %+v", f)
 		}
+	}
+	// contract=true drops the budget-only restriction.
+	withContract := discoverFilters(166, []int{21}, true)
+	if len(withContract) != 1 || withContract[0].BudgetOnly {
+		t.Errorf("contract filter should not be budget-only: %+v", withContract)
 	}
 }
 

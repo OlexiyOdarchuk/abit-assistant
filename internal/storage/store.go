@@ -177,6 +177,9 @@ type UserSettings struct {
 	// search FSM state is overwritten when a program screen opens).
 	LastDiscoverGaluz   int   `json:"last_discover_galuz,omitempty"`
 	LastDiscoverRegions []int `json:"last_discover_regions,omitempty"`
+	// LastDiscoverContract true means the last search included contract
+	// offers (default is budget-only).
+	LastDiscoverContract bool `json:"last_discover_contract,omitempty"`
 }
 
 // UserNMT maps subject name → applicant's score for it. Subject names
