@@ -41,6 +41,7 @@ const (
 	fsmKeyDiscRows     = "d_rows"    // JSON []discRow (analyzed+sorted)
 	fsmKeyDiscPage     = "d_page"
 	fsmKeyDiscOnlyPass = "d_pass" // bool: hide reach-tier
+	fsmKeyDiscSpec     = "d_spec" // selected specialty label ("" = all)
 
 	discoverBatch    = 10 // programs analyzed per browse/"show more"
 	discoverStoreMax = 60 // cap on browsed programs kept in FSM
@@ -53,6 +54,7 @@ type discProg struct {
 	URL  string `json:"u"`
 	Uni  string `json:"n"`
 	Prog string `json:"p"`
+	Spec string `json:"s"` // specialty label, for the in-results specialty filter
 }
 
 // discRow is an analyzed, render-ready result row.
@@ -60,6 +62,7 @@ type discRow struct {
 	URL   string `json:"u"`
 	Name  string `json:"n"`
 	Label string `json:"l"`
+	Spec  string `json:"s"` // specialty label, for the specialty filter
 	Tier  int    `json:"t"`
 }
 
@@ -161,25 +164,44 @@ func (b *Bot) renderRegionPicker(c tele.Context) error {
 	return renderOrEdit(c, sb.String(), tele.ModeMarkdown, regionPickerKeyboard(filters, sel))
 }
 
-// handleDiscoverRun browses the chosen filter(s), analyzes the first batch,
-// stores everything in FSM, and renders the first results page.
+// handleDiscoverRun launches the search for the regions chosen in the
+// multi-select.
 func (b *Bot) handleDiscoverRun(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
-	uid := senderID(c)
-	state, err := b.fsm.Get(ctx, uid)
+	state, err := b.fsm.Get(ctx, senderID(c))
 	if err != nil || state.Name != fsmStateDiscoverRegions {
 		return errors.New("сесія вибору завершилась — почни з /menu")
 	}
+	return b.runDiscovery(ctx, c,
+		anyToInt(state.Data[fsmKeyDiscGaluz]), decodeIntSlice(state.Data[fsmKeyDiscSel]))
+}
+
+// handleDiscoverBack re-runs the user's last discovery — used by the "back
+// to results" button on a program opened from the list (its results FSM
+// state was overwritten when the program screen opened). Cached fetches make
+// the re-run fast.
+func (b *Bot) handleDiscoverBack(c tele.Context) error {
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+	settings, _ := b.store.GetUserSettings(ctx, senderID(c))
+	if settings.LastDiscoverGaluz == 0 {
+		return errors.New("немає попереднього пошуку — почни з 🧭 у /menu")
+	}
+	return b.runDiscovery(ctx, c, settings.LastDiscoverGaluz, settings.LastDiscoverRegions)
+}
+
+// runDiscovery browses galuz+regions, analyzes the first batch, stores the
+// result in FSM and renders page 0. It also persists the filter so a program
+// later opened from these results can re-run them ("back to results").
+func (b *Bot) runDiscovery(ctx context.Context, c tele.Context, galuz int, sel []int) error {
+	uid := senderID(c)
 	in, ok := b.discoverInput(ctx, uid)
 	if !ok {
 		return errors.New("спочатку заповни /profile")
 	}
-	galuz := anyToInt(state.Data[fsmKeyDiscGaluz])
-	galName, _ := state.Data[fsmKeyDiscGalName].(string)
-	sel := decodeIntSlice(state.Data[fsmKeyDiscSel])
-
 	filters, _ := b.discoverSvc.Filters(ctx)
+	galName := optionName(filters.Industries, galuz, "Усі галузі")
 	regNames := "Вся Україна"
 	if len(sel) > 0 {
 		names := make([]string, 0, len(sel))
@@ -204,7 +226,7 @@ func (b *Bot) handleDiscoverRun(c tele.Context) error {
 
 	compact := make([]discProg, len(browsed))
 	for i, p := range browsed {
-		compact[i] = discProg{URL: p.URL, Uni: p.University, Prog: p.Program}
+		compact[i] = discProg{URL: p.URL, Uni: p.University, Prog: p.Program, Spec: p.Specialty}
 	}
 
 	data := map[string]any{
@@ -222,7 +244,22 @@ func (b *Bot) handleDiscoverRun(c tele.Context) error {
 	if err := b.fsm.Set(context.Background(), uid, fsmStateDiscover, data); err != nil {
 		b.log.Warn("discover fsm set", "err", err)
 	}
+	b.saveLastDiscover(ctx, uid, galuz, sel)
 	return b.renderDiscoverPage(c, 0)
+}
+
+// saveLastDiscover persists the filter into user settings (read-modify-write
+// so other settings survive).
+func (b *Bot) saveLastDiscover(ctx context.Context, uid int64, galuz int, sel []int) {
+	settings, err := b.store.GetUserSettings(ctx, uid)
+	if err != nil {
+		return
+	}
+	settings.LastDiscoverGaluz = galuz
+	settings.LastDiscoverRegions = sel
+	if err := b.store.SetUserSettings(ctx, uid, settings); err != nil {
+		b.log.Warn("save last discover", "err", err)
+	}
 }
 
 // --- results screen -------------------------------------------------------
@@ -281,12 +318,49 @@ func (b *Bot) handleDiscoverOnlyPassTog(c tele.Context) error {
 	return b.renderDiscoverPage(c, 0)
 }
 
+// handleDiscoverSpec drives the specialty filter: "list" opens the picker,
+// "all" clears it, a numeric arg picks the specialty at that index in the
+// (stable, sorted) distinct-specialty list.
+func (b *Bot) handleDiscoverSpec(c tele.Context) error {
+	arg := callback.From(c).String(0)
+	ctx, cancel := context.WithTimeout(context.Background(), listsTimeout)
+	state, err := b.fsm.Get(ctx, senderID(c))
+	cancel()
+	if err != nil || state.Name != fsmStateDiscover {
+		return errors.New("результати застаріли — повтори пошук")
+	}
+
+	switch arg {
+	case "list":
+		specs := distinctSpecs(loadBrowsed(state.Data))
+		if len(specs) <= 1 {
+			_ = c.Respond(&tele.CallbackResponse{Text: "У цій галузі лише одна спеціальність"})
+			return nil
+		}
+		text := "🎓 Обери спеціальність, щоб звузити список:"
+		return renderOrEdit(c, text, tele.ModeMarkdown, specPickerKeyboard(specs))
+	case "all":
+		state.Data[fsmKeyDiscSpec] = ""
+	default:
+		idx, ok := callback.From(c).Int(0)
+		specs := distinctSpecs(loadBrowsed(state.Data))
+		if !ok || idx < 0 || idx >= len(specs) {
+			return errors.New("спеціальність не знайдено")
+		}
+		state.Data[fsmKeyDiscSpec] = specs[idx]
+	}
+	if err := b.fsm.Set(context.Background(), senderID(c), fsmStateDiscover, state.Data); err != nil {
+		b.log.Warn("discover spec set", "err", err)
+	}
+	return b.renderDiscoverPage(c, 0)
+}
+
 // handleDiscoverSaveSafe saves every safety-tier program to /lists in one tap.
 func (b *Bot) handleDiscoverSaveSafe(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
 	uid := senderID(c)
-	rows, _, _, _, _, err := b.discoverState(c)
+	rows, _, _, _, _, _, err := b.discoverState(c)
 	if err != nil {
 		return err
 	}
@@ -322,50 +396,89 @@ func (b *Bot) handleDiscoverResult(c tele.Context) error {
 	if !ok {
 		return errors.New("втрачено програму")
 	}
-	rows, _, _, _, _, err := b.discoverState(c)
+	info, err := b.discoverView(c)
 	if err != nil {
 		return err
 	}
-	if idx < 0 || idx >= len(rows) {
+	// Index into the same filtered view the keyboard was built from, so the
+	// tapped button opens the program it shows.
+	if idx < 0 || idx >= len(info.view) {
 		return errors.New("програму не знайдено — повтори пошук")
 	}
-	return b.showSummary(c, rows[idx].URL)
+	return b.showSummaryFromDiscover(c, info.view[idx].URL)
+}
+
+// discoverViewInfo is the fully-resolved results view: the filtered+sorted
+// rows the keyboard renders (and result taps index into), plus header data.
+type discoverViewInfo struct {
+	view              []discRow
+	safe, mid, reach  int
+	galName, regNames string
+	spec              string // active specialty filter ("" = none)
+	found, analyzed   int
+	onlyPass          bool
+}
+
+// discoverView resolves the current results view from FSM, applying the
+// active specialty and "only passing" filters with a graceful fallback when
+// a filter would empty the list. Both renderDiscoverPage and the result-open
+// handler use it, so a tapped button always opens the program it shows.
+func (b *Bot) discoverView(c tele.Context) (discoverViewInfo, error) {
+	rows, galName, regNames, found, onlyPass, spec, err := b.discoverState(c)
+	if err != nil {
+		return discoverViewInfo{}, err
+	}
+	if len(rows) == 0 {
+		return discoverViewInfo{}, errors.New("результати застаріли — повтори пошук через /menu")
+	}
+	base := rows
+	if spec != "" {
+		if f := filterBySpec(rows, spec); len(f) > 0 {
+			base = f
+		} else {
+			spec = "" // specialty no longer present (e.g. before "show more")
+		}
+	}
+	view := base
+	if onlyPass {
+		if f := filterPassing(base); len(f) > 0 {
+			view = f
+		} else {
+			onlyPass = false
+		}
+	}
+	safe, mid, reach := tierCounts(base)
+	return discoverViewInfo{
+		view: view, safe: safe, mid: mid, reach: reach,
+		galName: galName, regNames: regNames, spec: spec,
+		found: found, analyzed: len(rows), onlyPass: onlyPass,
+	}, nil
 }
 
 func (b *Bot) renderDiscoverPage(c tele.Context, page int) error {
-	rows, galName, regNames, found, onlyPass, err := b.discoverState(c)
+	info, err := b.discoverView(c)
 	if err != nil {
 		return err
 	}
-	if len(rows) == 0 {
-		return errors.New("результати застаріли — повтори пошук через /menu")
-	}
-
-	safe, mid, reach := tierCounts(rows)
-	view := rows
-	if onlyPass {
-		view = filterPassing(rows)
-	}
-	if len(view) == 0 {
-		view = rows
-		onlyPass = false
-	}
-
-	maxPage := (len(view) - 1) / discoverPageSize
+	maxPage := (len(info.view) - 1) / discoverPageSize
 	page = max(0, min(page, maxPage))
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "🧭 *Куди я вступлю*\n\n📚 %s · 📍 %s\n", mdEscape(galName), mdEscape(regNames))
-	sb.WriteString("_бюджет · бакалавр · ПЗСО · денна_\n\n")
-	fmt.Fprintf(&sb, "🟢 надійних: *%d* · 🟡 на межі: *%d* · 🔴 амбіційних: *%d*\n", safe, mid, reach)
-	if found > len(rows) {
-		fmt.Fprintf(&sb, "_проаналізовано %d з %d — тисни «➕ Ще» для решти_\n", len(rows), found)
+	fmt.Fprintf(&sb, "🧭 *Куди я вступлю*\n\n📚 %s · 📍 %s\n", mdEscape(info.galName), mdEscape(info.regNames))
+	sb.WriteString("_бюджет · бакалавр · ПЗСО · денна_\n")
+	if info.spec != "" {
+		fmt.Fprintf(&sb, "🎓 *%s*\n", mdEscape(info.spec))
+	}
+	sb.WriteString("\n")
+	fmt.Fprintf(&sb, "🟢 надійних: *%d* · 🟡 на межі: *%d* · 🔴 амбіційних: *%d*\n", info.safe, info.mid, info.reach)
+	if info.found > info.analyzed {
+		fmt.Fprintf(&sb, "_проаналізовано %d з %d — тисни «➕ Ще» для решти_\n", info.analyzed, info.found)
 	}
 	sb.WriteString("\nТисни програму — відкриється повний аналіз 👇")
 
 	b.setDiscoverPage(c, page)
 	return renderOrEdit(c, sb.String(), tele.ModeMarkdown,
-		discoverResultsKeyboard(view, page, onlyPass, len(rows) < found), tele.NoPreview)
+		discoverResultsKeyboard(info.view, page, info.onlyPass, info.spec != "", info.analyzed < info.found), tele.NoPreview)
 }
 
 // --- analyze + state helpers ----------------------------------------------
@@ -380,7 +493,10 @@ func (b *Bot) analyzeAndStore(ctx context.Context, data map[string]any, in servi
 	}
 	progs := make([]osvita.SpecProgram, target)
 	for i := 0; i < target; i++ {
-		progs[i] = osvita.SpecProgram{URL: browsed[i].URL, University: browsed[i].Uni, Program: browsed[i].Prog}
+		progs[i] = osvita.SpecProgram{
+			URL: browsed[i].URL, University: browsed[i].Uni,
+			Program: browsed[i].Prog, Specialty: browsed[i].Spec,
+		}
 	}
 	matches := b.discoverSvc.Analyze(ctx, progs, in)
 	service.SortMatches(matches)
@@ -391,6 +507,7 @@ func (b *Bot) analyzeAndStore(ctx context.Context, data map[string]any, in servi
 			URL:   m.Program.URL,
 			Name:  discoverName(m),
 			Label: discoverLabel(m),
+			Spec:  m.Program.Specialty,
 			Tier:  int(m.Analysis.Chance.Tier()),
 		})
 	}
@@ -414,12 +531,12 @@ func (b *Bot) discoverInput(ctx context.Context, uid int64) (service.DiscoverInp
 	}, true
 }
 
-func (b *Bot) discoverState(c tele.Context) (rows []discRow, galName, regNames string, found int, onlyPass bool, err error) {
+func (b *Bot) discoverState(c tele.Context) (rows []discRow, galName, regNames string, found int, onlyPass bool, spec string, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), listsTimeout)
 	defer cancel()
 	state, gerr := b.fsm.Get(ctx, senderID(c))
 	if gerr != nil || state.Name != fsmStateDiscover {
-		return nil, "", "", 0, false, errors.New("сесія пошуку завершилась — почни з /menu")
+		return nil, "", "", 0, false, "", errors.New("сесія пошуку завершилась — почни з /menu")
 	}
 	if raw, _ := state.Data[fsmKeyDiscRows].(string); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &rows)
@@ -428,7 +545,8 @@ func (b *Bot) discoverState(c tele.Context) (rows []discRow, galName, regNames s
 	regNames, _ = state.Data[fsmKeyDiscRegNames].(string)
 	found = anyToInt(state.Data[fsmKeyDiscFound])
 	onlyPass, _ = state.Data[fsmKeyDiscOnlyPass].(bool)
-	return rows, galName, regNames, found, onlyPass, nil
+	spec, _ = state.Data[fsmKeyDiscSpec].(string)
+	return rows, galName, regNames, found, onlyPass, spec, nil
 }
 
 func (b *Bot) setDiscoverPage(c tele.Context, page int) {
@@ -501,7 +619,7 @@ func regionPickerKeyboard(f osvita.Filters, sel []int) *tele.ReplyMarkup {
 	return kb
 }
 
-func discoverResultsKeyboard(rows []discRow, page int, onlyPass, hasMore bool) *tele.ReplyMarkup {
+func discoverResultsKeyboard(rows []discRow, page int, onlyPass, specActive, hasMore bool) *tele.ReplyMarkup {
 	kb := &tele.ReplyMarkup{}
 	start := page * discoverPageSize
 	end := min(start+discoverPageSize, len(rows))
@@ -534,9 +652,29 @@ func discoverResultsKeyboard(rows []discRow, page int, onlyPass, hasMore bool) *
 		actions = append(actions, kb.Data("➕ Ще", btnUniqueDiscoverMore))
 	}
 	kbRows = append(kbRows, kb.Row(actions...))
-	kbRows = append(kbRows, kb.Row(kb.Data("💾 Зберегти надійні", btnUniqueDiscoverSaveSafe)))
+
+	specLabel, specArg := "🎓 Спеціальність", "list"
+	if specActive {
+		specLabel, specArg = "🎓 Спеціальність: скинути", "all"
+	}
+	kbRows = append(kbRows, kb.Row(
+		kb.Data(specLabel, btnUniqueDiscoverSpec, specArg),
+		kb.Data("💾 Надійні в /lists", btnUniqueDiscoverSaveSafe),
+	))
 	kbRows = append(kbRows, kb.Row(kb.Data("⬅️ Меню", btnUniqueMenu)))
 	kb.Inline(kbRows...)
+	return kb
+}
+
+func specPickerKeyboard(specs []string) *tele.ReplyMarkup {
+	kb := &tele.ReplyMarkup{}
+	rows := make([]tele.Row, 0, len(specs)+2)
+	for i, s := range specs {
+		rows = append(rows, kb.Row(kb.Data(truncateRunes(s, 56), btnUniqueDiscoverSpec, strconv.Itoa(i))))
+	}
+	rows = append(rows, kb.Row(kb.Data("📋 Усі спеціальності", btnUniqueDiscoverSpec, "all")))
+	rows = append(rows, kb.Row(kb.Data("⬅️ До результатів", btnUniqueDiscoverPage, "0")))
+	kb.Inline(rows...)
 	return kb
 }
 
@@ -592,6 +730,36 @@ func filterPassing(rows []discRow) []discRow {
 			out = append(out, r)
 		}
 	}
+	return out
+}
+
+func filterBySpec(rows []discRow, spec string) []discRow {
+	out := make([]discRow, 0, len(rows))
+	for _, r := range rows {
+		if r.Spec == spec {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// distinctSpecs returns the unique specialty labels among browsed programs,
+// in stable (sorted) order — so a button's index maps to the same specialty
+// across renders.
+func distinctSpecs(browsed []discProg) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, p := range browsed {
+		if p.Spec == "" {
+			continue
+		}
+		if _, ok := seen[p.Spec]; ok {
+			continue
+		}
+		seen[p.Spec] = struct{}{}
+		out = append(out, p.Spec)
+	}
+	slices.Sort(out)
 	return out
 }
 

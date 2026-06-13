@@ -74,6 +74,36 @@ func TestTierCountsAndFilter(t *testing.T) {
 	}
 }
 
+func TestFilterBySpec(t *testing.T) {
+	rows := []discRow{
+		{URL: "a", Spec: "F3 Комп'ютерні науки"},
+		{URL: "b", Spec: "F2 Інженерія ПЗ"},
+		{URL: "c", Spec: "F3 Комп'ютерні науки"},
+	}
+	got := filterBySpec(rows, "F3 Комп'ютерні науки")
+	if len(got) != 2 || got[0].URL != "a" || got[1].URL != "c" {
+		t.Errorf("filterBySpec = %+v", got)
+	}
+	if len(filterBySpec(rows, "немає")) != 0 {
+		t.Errorf("filterBySpec for absent spec should be empty")
+	}
+}
+
+func TestDistinctSpecs(t *testing.T) {
+	browsed := []discProg{
+		{Spec: "F3 Комп'ютерні науки"},
+		{Spec: "F2 Інженерія ПЗ"},
+		{Spec: "F3 Комп'ютерні науки"}, // dup
+		{Spec: ""},                     // blank skipped
+	}
+	got := distinctSpecs(browsed)
+	// Sorted, deduped, blank dropped.
+	want := []string{"F2 Інженерія ПЗ", "F3 Комп'ютерні науки"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("distinctSpecs = %v, want %v", got, want)
+	}
+}
+
 func TestSelSuffix(t *testing.T) {
 	if selSuffix(nil) != " (вся Україна)" {
 		t.Errorf("empty: %q", selSuffix(nil))

@@ -68,7 +68,7 @@ func (b *Bot) handleListView(c tele.Context) error {
 	if item.Program == nil {
 		return errors.New("збережений список пошкоджений")
 	}
-	return b.renderSummary(c, item.Program, item.URL)
+	return b.renderSummary(c, item.Program, item.URL, false)
 }
 
 // handleListDelete asks the user to confirm deletion. Cheap safeguard

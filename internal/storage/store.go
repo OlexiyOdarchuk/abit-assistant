@@ -170,6 +170,13 @@ type UserSettings struct {
 	// (used when the program requires one and the user hasn't taken it
 	// yet — feeds into the calculator).
 	CreativeScorePrediction int `json:"creative_score_prediction,omitempty"`
+
+	// LastDiscoverGaluz / LastDiscoverRegions remember the user's most
+	// recent "where can I get in" filter so a program opened from those
+	// results can offer a "back to results" button that re-runs it (the
+	// search FSM state is overwritten when a program screen opens).
+	LastDiscoverGaluz   int   `json:"last_discover_galuz,omitempty"`
+	LastDiscoverRegions []int `json:"last_discover_regions,omitempty"`
 }
 
 // UserNMT maps subject name → applicant's score for it. Subject names

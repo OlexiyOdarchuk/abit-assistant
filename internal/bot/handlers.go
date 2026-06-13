@@ -95,7 +95,7 @@ func (b *Bot) handleStartShareClone(c tele.Context, token string) error {
 	if err := c.Send(intro, tele.ModeMarkdown); err != nil {
 		return err
 	}
-	return b.renderSummary(c, source.Program, source.URL)
+	return b.renderSummary(c, source.Program, source.URL, false)
 }
 func (b *Bot) handleMenu(c tele.Context) error  { return b.renderMenu(c) }
 func (b *Bot) handleHelp(c tele.Context) error  { return c.Send(helpText, tele.ModeMarkdown) }
@@ -521,14 +521,27 @@ func (b *Bot) showSummary(c tele.Context, rawURL string) error {
 	if err != nil {
 		return fmt.Errorf("не вдалося отримати дані: %w", err)
 	}
-	return b.renderSummary(c, prog, rawURL)
+	return b.renderSummary(c, prog, rawURL, false)
+}
+
+// showSummaryFromDiscover is showSummary for a program opened from the
+// "where can I get in" results — the summary then offers a "back to results"
+// button (the discovery FSM state is overwritten here, so back re-runs it).
+func (b *Bot) showSummaryFromDiscover(c tele.Context, rawURL string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+	prog, err := b.programSvc.Fetch(ctx, rawURL)
+	if err != nil {
+		return fmt.Errorf("не вдалося отримати дані: %w", err)
+	}
+	return b.renderSummary(c, prog, rawURL, true)
 }
 
 // renderSummary is the common path: takes an already-loaded Program +
 // the URL it came from, reads the user's profile, computes the rating
 // and analysis, persists FSM (preserving any active overrides), edits
 // the message.
-func (b *Bot) renderSummary(c tele.Context, prog *abit.Program, rawURL string) error {
+func (b *Bot) renderSummary(c tele.Context, prog *abit.Program, rawURL string, backToDiscover bool) error {
 	abits := abit.Decode(prog)
 	if len(abits) == 0 {
 		return errors.New("програма знайдена, але список порожній")
@@ -585,7 +598,7 @@ func (b *Bot) renderSummary(c tele.Context, prog *abit.Program, rawURL string) e
 		b.log.Warn("fsm set failed", "err", err)
 	}
 
-	text, kb := buildSummaryView(prog, analysis)
+	text, kb := buildSummaryView(prog, analysis, backToDiscover)
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
 }
 
@@ -811,7 +824,7 @@ func buildResultsView(prog *abit.Program, view, all []abit.Abiturient, page int,
 
 // buildSummaryView renders the per-program analysis screen: user's
 // rating, chance, counts, verdict + actions.
-func buildSummaryView(prog *abit.Program, an abit.Analysis) (string, *tele.ReplyMarkup) {
+func buildSummaryView(prog *abit.Program, an abit.Analysis, backToDiscover bool) (string, *tele.ReplyMarkup) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "🎓 *%s* — %s\n\n",
 		mdEscape(prog.UniversityName), mdEscape(prog.ProgramName))
@@ -860,14 +873,19 @@ func buildSummaryView(prog *abit.Program, an abit.Analysis) (string, *tele.Reply
 	}
 
 	kb := &tele.ReplyMarkup{}
-	kb.Inline(
+	rows := []tele.Row{
 		kb.Row(kb.Data("📋 Дивитись список", btnUniqueViewList)),
 		kb.Row(
 			kb.Data("📊 Графік балів", btnUniqueChart),
 			kb.Data("💾 Зберегти", btnUniqueSaveList),
 		),
-		kb.Row(kb.Data("⬅️ Меню", btnUniqueMenu)),
-	)
+	}
+	// When opened from "where can I get in", offer a way back to that list.
+	if backToDiscover {
+		rows = append(rows, kb.Row(kb.Data("⬅️ До результатів", btnUniqueDiscoverBack)))
+	}
+	rows = append(rows, kb.Row(kb.Data("⬅️ Меню", btnUniqueMenu)))
+	kb.Inline(rows...)
 	return sb.String(), kb
 }
 

@@ -66,6 +66,8 @@ const (
 	btnUniqueDiscoverMore        = "disc_more" // analyze the next batch
 	btnUniqueDiscoverSaveSafe    = "disc_save" // save safety-tier programs to /lists
 	btnUniqueDiscoverOnlyPassTog = "disc_pass" // toggle "only programs I'd pass"
+	btnUniqueDiscoverBack        = "disc_back" // from a program back to results
+	btnUniqueDiscoverSpec        = "disc_spec" // specialty filter: list / pick / clear
 
 	// Saved lists.
 	btnUniqueListManage        = "l_mng"
