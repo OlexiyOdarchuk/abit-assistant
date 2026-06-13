@@ -57,11 +57,15 @@ const (
 	btnUniqueSaveList         = "save_list"
 
 	// Discover ("where can I get in") flow.
-	btnUniqueDiscover       = "disc"
-	btnUniqueDiscoverGaluz  = "disc_g"
-	btnUniqueDiscoverRegion = "disc_r"
-	btnUniqueDiscoverPage   = "disc_p"
-	btnUniqueDiscoverResult = "disc_res"
+	btnUniqueDiscover            = "disc"
+	btnUniqueDiscoverGaluz       = "disc_g"
+	btnUniqueDiscoverRegionTog   = "disc_rt"  // toggle a region in multi-select
+	btnUniqueDiscoverRun         = "disc_run" // run search with chosen regions
+	btnUniqueDiscoverPage        = "disc_p"
+	btnUniqueDiscoverResult      = "disc_res"
+	btnUniqueDiscoverMore        = "disc_more" // analyze the next batch
+	btnUniqueDiscoverSaveSafe    = "disc_save" // save safety-tier programs to /lists
+	btnUniqueDiscoverOnlyPassTog = "disc_pass" // toggle "only programs I'd pass"
 
 	// Saved lists.
 	btnUniqueListManage        = "l_mng"

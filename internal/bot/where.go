@@ -5,46 +5,66 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
 	tele "gopkg.in/telebot.v3"
 
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/bot/callback"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser/osvita"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/service"
 )
 
-// "Where can I get in" flow: pick a галузь → pick a region (or all of
-// Ukraine) → the bot scores the user against every budget bachelor program
-// matching the filter and lists them best-chance-first. Each result opens
-// the usual full analysis screen.
+// "Where can I get in" flow:
+//
+//	galuz → multi-select regions → ranked list of budget programs.
+//
+// The list is grouped by reach/match/safety, can be grown ("show more"),
+// filtered to "only programs I'd pass", and the safe ones saved to /lists in
+// one tap. Each result opens the full analysis.
 
 const (
-	fsmStateDiscover = "discover.viewing"
+	fsmStateDiscoverRegions = "discover.regions"
+	fsmStateDiscover        = "discover.viewing"
 
-	fsmKeyDiscRows   = "d_rows"   // JSON []discoverRow
-	fsmKeyDiscGaluz  = "d_galuz"  // human label, for the header
-	fsmKeyDiscRegion = "d_region" // human label, for the header
-	fsmKeyDiscFound  = "d_found"  // total matched (may exceed analyzed)
-	fsmKeyDiscPage   = "d_page"
+	// regions step
+	fsmKeyDiscGaluz   = "d_galuz" // int galuz code
+	fsmKeyDiscSel     = "d_sel"   // JSON []int selected region codes
+	fsmKeyDiscGalName = "d_gname" // galuz label (header)
+	// results step
+	fsmKeyDiscRegNames = "d_rnames"  // joined region labels (header)
+	fsmKeyDiscBrowsed  = "d_browsed" // JSON []discProg (merged browse, capped)
+	fsmKeyDiscAnalyzed = "d_anz"     // how many of browsed are analyzed
+	fsmKeyDiscFound    = "d_found"   // total merged matches
+	fsmKeyDiscRows     = "d_rows"    // JSON []discRow (analyzed+sorted)
+	fsmKeyDiscPage     = "d_page"
+	fsmKeyDiscOnlyPass = "d_pass" // bool: hide reach-tier
 
-	// discoverLimit caps how many programs are fetched+analyzed per run.
-	// Each is a full osvita scrape, so this bounds latency and politeness;
-	// the user narrows by region to bring a big galuz under the cap.
-	discoverLimit    = 12
+	discoverBatch    = 10 // programs analyzed per browse/"show more"
+	discoverStoreMax = 60 // cap on browsed programs kept in FSM
 	discoverPageSize = 6
+	discoverSaveMax  = 15 // cap on one-tap "save safe to lists"
 )
 
-// discoverRow is a compact, FSM-serializable result: enough to render the
-// list and to reopen the full analysis on tap.
-type discoverRow struct {
-	URL   string `json:"u"`
-	Label string `json:"l"`
+// discProg is a compact browsed program kept in FSM for "show more".
+type discProg struct {
+	URL  string `json:"u"`
+	Uni  string `json:"n"`
+	Prog string `json:"p"`
 }
 
-// handleDiscover is the menu entry point. Requires a filled profile (we
-// rank the user, so we need their score) and a private chat.
+// discRow is an analyzed, render-ready result row.
+type discRow struct {
+	URL   string `json:"u"`
+	Name  string `json:"n"`
+	Label string `json:"l"`
+	Tier  int    `json:"t"`
+}
+
+// --- entry + pickers ------------------------------------------------------
+
 func (b *Bot) handleDiscover(c tele.Context) error {
 	b.clearTransientFSM(c)
 	if err := requirePrivateChat(c); err != nil {
@@ -52,20 +72,19 @@ func (b *Bot) handleDiscover(c tele.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
-
 	if _, ok := b.discoverInput(ctx, senderID(c)); !ok {
 		return errors.New("спочатку заповни /profile — без балів НМТ я не зможу порахувати шанси")
 	}
-
 	filters, err := b.discoverSvc.Filters(ctx)
 	if err != nil {
 		return fmt.Errorf("не вдалося завантажити галузі: %w", err)
 	}
-	text := "🧭 *Куди я вступлю*\n\nОбери галузь знань — я знайду бюджетні бакалаврські програми й покажу, куди ти проходиш."
+	text := "🧭 *Куди я вступлю*\n\nОбери галузь знань — далі вкажеш області, і я знайду бюджетні бакалаврські програми та покажу, куди ти проходиш."
 	return renderOrEdit(c, text, tele.ModeMarkdown, galuzKeyboard(filters))
 }
 
-// handleDiscoverGaluz shows the region picker for the chosen галузь.
+// handleDiscoverGaluz opens the region multi-select for the chosen галузь
+// with an empty selection.
 func (b *Bot) handleDiscoverGaluz(c tele.Context) error {
 	galuz, ok := callback.From(c).Int(0)
 	if !ok {
@@ -77,54 +96,128 @@ func (b *Bot) handleDiscoverGaluz(c tele.Context) error {
 	if err != nil {
 		return fmt.Errorf("не вдалося завантажити регіони: %w", err)
 	}
-	text := "🧭 *Куди я вступлю*\n\nОбери регіон (або всю Україну):"
-	return renderOrEdit(c, text, tele.ModeMarkdown, regionKeyboard(filters, galuz))
+	data := map[string]any{
+		fsmKeyDiscGaluz:   galuz,
+		fsmKeyDiscGalName: optionName(filters.Industries, galuz, "Усі галузі"),
+		fsmKeyDiscSel:     "[]",
+	}
+	if err := b.fsm.Set(context.Background(), senderID(c), fsmStateDiscoverRegions, data); err != nil {
+		b.log.Warn("discover regions fsm set", "err", err)
+	}
+	return b.renderRegionPicker(c)
 }
 
-// handleDiscoverRegion runs the discovery for galuz+region, stores the
-// ranked rows in FSM, and renders the first page.
-func (b *Bot) handleDiscoverRegion(c tele.Context) error {
-	args := callback.From(c)
-	galuz, ok1 := args.Int(0)
-	region, ok2 := args.Int(1)
-	if !ok1 || !ok2 {
-		return errors.New("втрачено фільтр — почни з /menu")
+// handleDiscoverRegionTog toggles a region in the multi-select.
+func (b *Bot) handleDiscoverRegionTog(c tele.Context) error {
+	region, ok := callback.From(c).Int(0)
+	if !ok {
+		return errors.New("втрачено регіон")
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), listsTimeout)
+	state, err := b.fsm.Get(ctx, senderID(c))
+	cancel()
+	if err != nil || state.Name != fsmStateDiscoverRegions {
+		return errors.New("сесія вибору завершилась — почни з /menu")
+	}
+	sel := decodeIntSlice(state.Data[fsmKeyDiscSel])
+	if i := slices.Index(sel, region); i >= 0 {
+		sel = slices.Delete(sel, i, i+1)
+	} else {
+		sel = append(sel, region)
+	}
+	raw, _ := json.Marshal(sel)
+	state.Data[fsmKeyDiscSel] = string(raw)
+	if err := b.fsm.Set(context.Background(), senderID(c), fsmStateDiscoverRegions, state.Data); err != nil {
+		b.log.Warn("discover sel set", "err", err)
+	}
+	return b.renderRegionPicker(c)
+}
 
+func (b *Bot) renderRegionPicker(c tele.Context) error {
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+	state, err := b.fsm.Get(ctx, senderID(c))
+	if err != nil || state.Name != fsmStateDiscoverRegions {
+		return errors.New("сесія вибору завершилась — почни з /menu")
+	}
+	filters, err := b.discoverSvc.Filters(ctx)
+	if err != nil {
+		return fmt.Errorf("не вдалося завантажити регіони: %w", err)
+	}
+	galName, _ := state.Data[fsmKeyDiscGalName].(string)
+	sel := decodeIntSlice(state.Data[fsmKeyDiscSel])
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "🧭 *Куди я вступлю* · %s\n\n", mdEscape(galName))
+	if len(sel) == 0 {
+		sb.WriteString("Познач області (можна кілька) або тисни «🔎 Шукати» — шукатиму по всій Україні.")
+	} else {
+		names := make([]string, 0, len(sel))
+		for _, code := range sel {
+			names = append(names, optionName(filters.Regions, code, "?"))
+		}
+		fmt.Fprintf(&sb, "Обрано: *%s*\n\nДодай ще або тисни «🔎 Шукати».", mdEscape(strings.Join(names, ", ")))
+	}
+	return renderOrEdit(c, sb.String(), tele.ModeMarkdown, regionPickerKeyboard(filters, sel))
+}
+
+// handleDiscoverRun browses the chosen filter(s), analyzes the first batch,
+// stores everything in FSM, and renders the first results page.
+func (b *Bot) handleDiscoverRun(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
 	uid := senderID(c)
+	state, err := b.fsm.Get(ctx, uid)
+	if err != nil || state.Name != fsmStateDiscoverRegions {
+		return errors.New("сесія вибору завершилась — почни з /menu")
+	}
 	in, ok := b.discoverInput(ctx, uid)
 	if !ok {
 		return errors.New("спочатку заповни /profile")
 	}
-	_ = c.Notify(tele.Typing)
+	galuz := anyToInt(state.Data[fsmKeyDiscGaluz])
+	galName, _ := state.Data[fsmKeyDiscGalName].(string)
+	sel := decodeIntSlice(state.Data[fsmKeyDiscSel])
 
 	filters, _ := b.discoverSvc.Filters(ctx)
-	res, err := b.discoverSvc.WhereCanIGetIn(ctx, osvita.SpecFilter{
-		Region:     region,
-		Industry:   galuz,
-		BudgetOnly: true,
-	}, in, discoverLimit)
+	regNames := "Вся Україна"
+	if len(sel) > 0 {
+		names := make([]string, 0, len(sel))
+		for _, code := range sel {
+			names = append(names, optionName(filters.Regions, code, "?"))
+		}
+		regNames = strings.Join(names, ", ")
+	}
+
+	_ = c.Notify(tele.Typing)
+	browsed, err := b.discoverSvc.Browse(ctx, discoverFilters(galuz, sel))
 	if err != nil {
 		return fmt.Errorf("пошук не вдався: %w", err)
 	}
-	if len(res.Matches) == 0 {
-		return errors.New("за цим фільтром нічого не знайшов — спробуй іншу галузь чи регіон")
+	if len(browsed) == 0 {
+		return errors.New("за цим фільтром нічого не знайшов — спробуй іншу галузь чи область")
+	}
+	found := len(browsed)
+	if len(browsed) > discoverStoreMax {
+		browsed = browsed[:discoverStoreMax]
 	}
 
-	rows := make([]discoverRow, 0, len(res.Matches))
-	for _, m := range res.Matches {
-		rows = append(rows, discoverRow{URL: m.Program.URL, Label: discoverLabel(m)})
+	compact := make([]discProg, len(browsed))
+	for i, p := range browsed {
+		compact[i] = discProg{URL: p.URL, Uni: p.University, Prog: p.Program}
 	}
-	rowsJSON, _ := json.Marshal(rows)
 
 	data := map[string]any{
-		fsmKeyDiscRows:   string(rowsJSON),
-		fsmKeyDiscGaluz:  optionName(filters.Industries, galuz, "Усі галузі"),
-		fsmKeyDiscRegion: optionName(filters.Regions, region, "Вся Україна"),
-		fsmKeyDiscFound:  res.Found,
-		fsmKeyDiscPage:   0,
+		fsmKeyDiscGaluz:    galuz,
+		fsmKeyDiscGalName:  galName,
+		fsmKeyDiscRegNames: regNames,
+		fsmKeyDiscFound:    found,
+		fsmKeyDiscPage:     0,
+		fsmKeyDiscOnlyPass: false,
+	}
+	storeBrowsed(data, compact)
+	if err := b.analyzeAndStore(ctx, data, in, min(discoverBatch, len(compact))); err != nil {
+		return err
 	}
 	if err := b.fsm.Set(context.Background(), uid, fsmStateDiscover, data); err != nil {
 		b.log.Warn("discover fsm set", "err", err)
@@ -132,8 +225,8 @@ func (b *Bot) handleDiscoverRegion(c tele.Context) error {
 	return b.renderDiscoverPage(c, 0)
 }
 
-// handleDiscoverPage flips between result pages, reading the cached rows
-// from FSM (no re-fetch).
+// --- results screen -------------------------------------------------------
+
 func (b *Bot) handleDiscoverPage(c tele.Context) error {
 	page, ok := callback.From(c).Int(0)
 	if !ok {
@@ -142,13 +235,94 @@ func (b *Bot) handleDiscoverPage(c tele.Context) error {
 	return b.renderDiscoverPage(c, page)
 }
 
-// handleDiscoverResult opens the full analysis for the tapped program.
+// handleDiscoverMore analyzes the next batch of browsed programs and
+// re-renders from the top (the bigger set is globally re-sorted).
+func (b *Bot) handleDiscoverMore(c tele.Context) error {
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+	uid := senderID(c)
+	state, err := b.fsm.Get(ctx, uid)
+	if err != nil || state.Name != fsmStateDiscover {
+		return errors.New("результати застаріли — повтори пошук через /menu")
+	}
+	in, ok := b.discoverInput(ctx, uid)
+	if !ok {
+		return errors.New("спочатку заповни /profile")
+	}
+	browsed := loadBrowsed(state.Data)
+	analyzed := anyToInt(state.Data[fsmKeyDiscAnalyzed])
+	if analyzed >= len(browsed) {
+		_ = c.Respond(&tele.CallbackResponse{Text: "Це вже всі знайдені програми"})
+		return nil
+	}
+	_ = c.Notify(tele.Typing)
+	target := min(analyzed+discoverBatch, len(browsed))
+	if err := b.analyzeAndStore(ctx, state.Data, in, target); err != nil {
+		return err
+	}
+	if err := b.fsm.Set(context.Background(), uid, fsmStateDiscover, state.Data); err != nil {
+		b.log.Warn("discover more set", "err", err)
+	}
+	return b.renderDiscoverPage(c, 0)
+}
+
+func (b *Bot) handleDiscoverOnlyPassTog(c tele.Context) error {
+	ctx, cancel := context.WithTimeout(context.Background(), listsTimeout)
+	state, err := b.fsm.Get(ctx, senderID(c))
+	cancel()
+	if err != nil || state.Name != fsmStateDiscover {
+		return errors.New("результати застаріли — повтори пошук")
+	}
+	cur, _ := state.Data[fsmKeyDiscOnlyPass].(bool)
+	state.Data[fsmKeyDiscOnlyPass] = !cur
+	if err := b.fsm.Set(context.Background(), senderID(c), fsmStateDiscover, state.Data); err != nil {
+		b.log.Warn("discover onlypass set", "err", err)
+	}
+	return b.renderDiscoverPage(c, 0)
+}
+
+// handleDiscoverSaveSafe saves every safety-tier program to /lists in one tap.
+func (b *Bot) handleDiscoverSaveSafe(c tele.Context) error {
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+	uid := senderID(c)
+	rows, _, _, _, _, err := b.discoverState(c)
+	if err != nil {
+		return err
+	}
+	saved := 0
+	for _, r := range rows {
+		if r.Tier != int(abit.TierSafety) {
+			continue
+		}
+		if saved >= discoverSaveMax {
+			break
+		}
+		prog, ferr := b.programSvc.Fetch(ctx, r.URL)
+		if ferr != nil {
+			b.log.Warn("save-safe fetch", "url", r.URL, "err", ferr)
+			continue
+		}
+		if _, serr := b.store.SaveList(ctx, uid, savedListName(prog), r.URL, prog); serr != nil {
+			b.log.Warn("save-safe store", "err", serr)
+			continue
+		}
+		saved++
+	}
+	msg := "Немає надійних програм для збереження"
+	if saved > 0 {
+		msg = fmt.Sprintf("💾 Збережено %d надійних у /lists", saved)
+	}
+	_ = c.Respond(&tele.CallbackResponse{Text: msg, ShowAlert: true})
+	return nil
+}
+
 func (b *Bot) handleDiscoverResult(c tele.Context) error {
 	idx, ok := callback.From(c).Int(0)
 	if !ok {
 		return errors.New("втрачено програму")
 	}
-	rows, _, _, _, err := b.discoverState(c)
+	rows, _, _, _, _, err := b.discoverState(c)
 	if err != nil {
 		return err
 	}
@@ -158,9 +332,8 @@ func (b *Bot) handleDiscoverResult(c tele.Context) error {
 	return b.showSummary(c, rows[idx].URL)
 }
 
-// renderDiscoverPage renders one page of the cached discovery result.
 func (b *Bot) renderDiscoverPage(c tele.Context, page int) error {
-	rows, galuz, region, found, err := b.discoverState(c)
+	rows, galName, regNames, found, onlyPass, err := b.discoverState(c)
 	if err != nil {
 		return err
 	}
@@ -168,37 +341,65 @@ func (b *Bot) renderDiscoverPage(c tele.Context, page int) error {
 		return errors.New("результати застаріли — повтори пошук через /menu")
 	}
 
-	maxPage := (len(rows) - 1) / discoverPageSize
-	if page < 0 {
-		page = 0
+	safe, mid, reach := tierCounts(rows)
+	view := rows
+	if onlyPass {
+		view = filterPassing(rows)
 	}
-	if page > maxPage {
-		page = maxPage
+	if len(view) == 0 {
+		view = rows
+		onlyPass = false
 	}
+
+	maxPage := (len(view) - 1) / discoverPageSize
+	page = max(0, min(page, maxPage))
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "🧭 *Куди я вступлю*\n\n📚 %s · 📍 %s\n",
-		mdEscape(galuz), mdEscape(region))
+	fmt.Fprintf(&sb, "🧭 *Куди я вступлю*\n\n📚 %s · 📍 %s\n", mdEscape(galName), mdEscape(regNames))
 	sb.WriteString("_бюджет · бакалавр · ПЗСО · денна_\n\n")
+	fmt.Fprintf(&sb, "🟢 надійних: *%d* · 🟡 на межі: *%d* · 🔴 амбіційних: *%d*\n", safe, mid, reach)
 	if found > len(rows) {
-		fmt.Fprintf(&sb, "Знайдено *%d* програм; показую *%d* найкращих за шансом (звузь регіоном, щоб охопити всі).\n\n",
-			found, len(rows))
-	} else {
-		fmt.Fprintf(&sb, "Знайдено й проаналізовано *%d* програм, від найкращих шансів:\n\n", len(rows))
+		fmt.Fprintf(&sb, "_проаналізовано %d з %d — тисни «➕ Ще» для решти_\n", len(rows), found)
 	}
-	sb.WriteString("Тисни програму — відкриється повний аналіз 👇")
+	sb.WriteString("\nТисни програму — відкриється повний аналіз 👇")
 
-	// FSM page bookkeeping so pagination survives a restart.
 	b.setDiscoverPage(c, page)
-
 	return renderOrEdit(c, sb.String(), tele.ModeMarkdown,
-		discoverResultsKeyboard(rows, page), tele.NoPreview)
+		discoverResultsKeyboard(view, page, onlyPass, len(rows) < found), tele.NoPreview)
 }
 
-// --- state helpers --------------------------------------------------------
+// --- analyze + state helpers ----------------------------------------------
 
-// discoverInput assembles the user's rating inputs. ok is false when the
-// profile has no NMT scores (nothing to rank against).
+// analyzeAndStore (re-)analyzes browsed[:target], sorts the whole set, and
+// writes rows + analyzed count into data. Already-fetched programs come from
+// cache, so re-analyzing the prefix is cheap.
+func (b *Bot) analyzeAndStore(ctx context.Context, data map[string]any, in service.DiscoverInput, target int) error {
+	browsed := loadBrowsed(data)
+	if target > len(browsed) {
+		target = len(browsed)
+	}
+	progs := make([]osvita.SpecProgram, target)
+	for i := 0; i < target; i++ {
+		progs[i] = osvita.SpecProgram{URL: browsed[i].URL, University: browsed[i].Uni, Program: browsed[i].Prog}
+	}
+	matches := b.discoverSvc.Analyze(ctx, progs, in)
+	service.SortMatches(matches)
+
+	rows := make([]discRow, 0, len(matches))
+	for _, m := range matches {
+		rows = append(rows, discRow{
+			URL:   m.Program.URL,
+			Name:  discoverName(m),
+			Label: discoverLabel(m),
+			Tier:  int(m.Analysis.Chance.Tier()),
+		})
+	}
+	raw, _ := json.Marshal(rows)
+	data[fsmKeyDiscRows] = string(raw)
+	data[fsmKeyDiscAnalyzed] = target
+	return nil
+}
+
 func (b *Bot) discoverInput(ctx context.Context, uid int64) (service.DiscoverInput, bool) {
 	nmt, _ := b.store.GetUserNMT(ctx, uid)
 	if len(nmt) == 0 {
@@ -213,26 +414,23 @@ func (b *Bot) discoverInput(ctx context.Context, uid int64) (service.DiscoverInp
 	}, true
 }
 
-// discoverState reads the cached discovery result from FSM.
-func (b *Bot) discoverState(c tele.Context) (rows []discoverRow, galuz, region string, found int, err error) {
+func (b *Bot) discoverState(c tele.Context) (rows []discRow, galName, regNames string, found int, onlyPass bool, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), listsTimeout)
 	defer cancel()
 	state, gerr := b.fsm.Get(ctx, senderID(c))
 	if gerr != nil || state.Name != fsmStateDiscover {
-		return nil, "", "", 0, errors.New("сесія пошуку завершилась — почни з /menu")
+		return nil, "", "", 0, false, errors.New("сесія пошуку завершилась — почни з /menu")
 	}
-	raw, _ := state.Data[fsmKeyDiscRows].(string)
-	if raw != "" {
+	if raw, _ := state.Data[fsmKeyDiscRows].(string); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &rows)
 	}
-	galuz, _ = state.Data[fsmKeyDiscGaluz].(string)
-	region, _ = state.Data[fsmKeyDiscRegion].(string)
+	galName, _ = state.Data[fsmKeyDiscGalName].(string)
+	regNames, _ = state.Data[fsmKeyDiscRegNames].(string)
 	found = anyToInt(state.Data[fsmKeyDiscFound])
-	return rows, galuz, region, found, nil
+	onlyPass, _ = state.Data[fsmKeyDiscOnlyPass].(bool)
+	return rows, galName, regNames, found, onlyPass, nil
 }
 
-// setDiscoverPage persists the current page without touching the rest of
-// the discovery state.
 func (b *Bot) setDiscoverPage(c tele.Context, page int) {
 	ctx, cancel := context.WithTimeout(context.Background(), listsTimeout)
 	defer cancel()
@@ -245,6 +443,19 @@ func (b *Bot) setDiscoverPage(c tele.Context, page int) {
 	if err := b.fsm.Set(context.Background(), uid, fsmStateDiscover, state.Data); err != nil {
 		b.log.Warn("discover page set", "err", err)
 	}
+}
+
+func storeBrowsed(data map[string]any, progs []discProg) {
+	raw, _ := json.Marshal(progs)
+	data[fsmKeyDiscBrowsed] = string(raw)
+}
+
+func loadBrowsed(data map[string]any) []discProg {
+	var out []discProg
+	if raw, _ := data[fsmKeyDiscBrowsed].(string); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &out)
+	}
+	return out
 }
 
 // --- view builders --------------------------------------------------------
@@ -261,16 +472,19 @@ func galuzKeyboard(f osvita.Filters) *tele.ReplyMarkup {
 	return kb
 }
 
-func regionKeyboard(f osvita.Filters, galuz int) *tele.ReplyMarkup {
+func regionPickerKeyboard(f osvita.Filters, sel []int) *tele.ReplyMarkup {
 	kb := &tele.ReplyMarkup{}
 	rows := make([]tele.Row, 0, len(f.Regions)/2+3)
-	rows = append(rows, kb.Row(kb.Data("🇺🇦 Вся Україна",
-		btnUniqueDiscoverRegion, callback.Encode(strconv.Itoa(galuz), "0"))))
+	rows = append(rows, kb.Row(kb.Data(
+		fmt.Sprintf("🔎 Шукати%s", selSuffix(sel)), btnUniqueDiscoverRun)))
 
 	var row []tele.Btn
 	for _, opt := range f.Regions {
-		row = append(row, kb.Data(truncateRunes(opt.Name, 22),
-			btnUniqueDiscoverRegion, callback.Encode(strconv.Itoa(galuz), strconv.Itoa(opt.Code))))
+		label := truncateRunes(opt.Name, 22)
+		if slices.Contains(sel, opt.Code) {
+			label = "✅ " + truncateRunes(opt.Name, 20)
+		}
+		row = append(row, kb.Data(label, btnUniqueDiscoverRegionTog, strconv.Itoa(opt.Code)))
 		if len(row) == 2 {
 			rows = append(rows, kb.Row(row...))
 			row = nil
@@ -279,47 +493,118 @@ func regionKeyboard(f osvita.Filters, galuz int) *tele.ReplyMarkup {
 	if len(row) > 0 {
 		rows = append(rows, kb.Row(row...))
 	}
-	rows = append(rows, kb.Row(kb.Data("⬅️ Меню", btnUniqueMenu)))
+	rows = append(rows, kb.Row(
+		kb.Data("⬅️ Галузі", btnUniqueDiscover),
+		kb.Data("⬅️ Меню", btnUniqueMenu),
+	))
 	kb.Inline(rows...)
 	return kb
 }
 
-func discoverResultsKeyboard(rows []discoverRow, page int) *tele.ReplyMarkup {
+func discoverResultsKeyboard(rows []discRow, page int, onlyPass, hasMore bool) *tele.ReplyMarkup {
 	kb := &tele.ReplyMarkup{}
 	start := page * discoverPageSize
 	end := min(start+discoverPageSize, len(rows))
 	maxPage := (len(rows) - 1) / discoverPageSize
 
-	kbRows := make([]tele.Row, 0, end-start+2)
+	kbRows := make([]tele.Row, 0, end-start+4)
 	for i := start; i < end; i++ {
 		kbRows = append(kbRows, kb.Row(kb.Data(
 			truncateRunes(rows[i].Label, 60), btnUniqueDiscoverResult, strconv.Itoa(i))))
 	}
 
-	var nav []tele.Btn
-	if page > 0 {
-		nav = append(nav, kb.Data("⬅️", btnUniqueDiscoverPage, strconv.Itoa(page-1)))
+	if maxPage > 0 {
+		var nav []tele.Btn
+		if page > 0 {
+			nav = append(nav, kb.Data("⬅️", btnUniqueDiscoverPage, strconv.Itoa(page-1)))
+		}
+		nav = append(nav, kb.Data(fmt.Sprintf("%d/%d", page+1, maxPage+1), btnUniqueNoop))
+		if page < maxPage {
+			nav = append(nav, kb.Data("➡️", btnUniqueDiscoverPage, strconv.Itoa(page+1)))
+		}
+		kbRows = append(kbRows, kb.Row(nav...))
 	}
-	nav = append(nav, kb.Data(fmt.Sprintf("%d/%d", page+1, maxPage+1), btnUniqueNoop))
-	if page < maxPage {
-		nav = append(nav, kb.Data("➡️", btnUniqueDiscoverPage, strconv.Itoa(page+1)))
+
+	passLabel := "🎯 Тільки прохідні"
+	if onlyPass {
+		passLabel = "📋 Показати всі"
 	}
-	kbRows = append(kbRows, kb.Row(nav...))
+	actions := []tele.Btn{kb.Data(passLabel, btnUniqueDiscoverOnlyPassTog)}
+	if hasMore {
+		actions = append(actions, kb.Data("➕ Ще", btnUniqueDiscoverMore))
+	}
+	kbRows = append(kbRows, kb.Row(actions...))
+	kbRows = append(kbRows, kb.Row(kb.Data("💾 Зберегти надійні", btnUniqueDiscoverSaveSafe)))
 	kbRows = append(kbRows, kb.Row(kb.Data("⬅️ Меню", btnUniqueMenu)))
 	kb.Inline(kbRows...)
 	return kb
 }
 
-// discoverLabel builds the one-line button label for a result.
-func discoverLabel(m service.ProgramMatch) string {
-	name := m.Program.University
-	if name == "" {
-		name = m.Program.Program
+// --- small helpers --------------------------------------------------------
+
+func discoverFilters(galuz int, regions []int) []osvita.SpecFilter {
+	if len(regions) == 0 {
+		return []osvita.SpecFilter{{Industry: galuz, BudgetOnly: true}}
 	}
-	return fmt.Sprintf("%s %s — %s", m.Analysis.Chance.Emoji(), name, m.Analysis.Chance.Label())
+	out := make([]osvita.SpecFilter, 0, len(regions))
+	for _, r := range regions {
+		out = append(out, osvita.SpecFilter{Industry: galuz, Region: r, BudgetOnly: true})
+	}
+	return out
 }
 
-// --- small helpers --------------------------------------------------------
+func discoverName(m service.ProgramMatch) string {
+	if m.Program.University != "" {
+		return m.Program.University
+	}
+	return m.Program.Program
+}
+
+// discoverLabel is the one-line button label: chance emoji, ЗВО, and the
+// user's standing (rank / free seats) when known.
+func discoverLabel(m service.ProgramMatch) string {
+	a := m.Analysis
+	standing := a.Chance.Label()
+	if a.MyRealRank > 0 && a.RemainingSpots >= 0 && a.Chance != abit.ChanceUnknown {
+		standing = fmt.Sprintf("%d-й, місць %d", a.MyRealRank, a.RemainingSpots)
+	}
+	return fmt.Sprintf("%s %s — %s", a.Chance.Emoji(), discoverName(m), standing)
+}
+
+func tierCounts(rows []discRow) (safe, mid, reach int) {
+	for _, r := range rows {
+		switch abit.Tier(r.Tier) {
+		case abit.TierSafety:
+			safe++
+		case abit.TierMatch:
+			mid++
+		case abit.TierReach:
+			reach++
+		}
+	}
+	return safe, mid, reach
+}
+
+func filterPassing(rows []discRow) []discRow {
+	out := make([]discRow, 0, len(rows))
+	for _, r := range rows {
+		if abit.Tier(r.Tier) == abit.TierSafety || abit.Tier(r.Tier) == abit.TierMatch {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func selSuffix(sel []int) string {
+	switch {
+	case len(sel) == 0:
+		return " (вся Україна)"
+	case len(sel) == 1:
+		return " (1 область)"
+	default:
+		return fmt.Sprintf(" (%d областей)", len(sel))
+	}
+}
 
 func optionName(opts []osvita.FilterOption, code int, fallback string) string {
 	for _, o := range opts {
@@ -340,4 +625,15 @@ func anyToInt(v any) int {
 		return int(n)
 	}
 	return 0
+}
+
+// decodeIntSlice reads a JSON-encoded []int stored in FSM data.
+func decodeIntSlice(v any) []int {
+	raw, _ := v.(string)
+	if raw == "" {
+		return nil
+	}
+	var out []int
+	_ = json.Unmarshal([]byte(raw), &out)
+	return out
 }

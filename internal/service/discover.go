@@ -96,13 +96,70 @@ type DiscoverResult struct {
 	Matches []ProgramMatch
 }
 
-// WhereCanIGetIn browses programs matching filter, scores the user against
-// each (cache-aware fetch + ComputeRating + Analyze), and returns them ranked
-// by chance. limit bounds how many programs are actually fetched+analyzed —
-// browse can return hundreds and each fetch is a full osvita scrape, so an
-// unbounded run would be slow and impolite. limit ≤ 0 means "no cap".
-func (s *DiscoverService) WhereCanIGetIn(ctx context.Context, filter osvita.SpecFilter, in DiscoverInput, limit int) (DiscoverResult, error) {
-	programs, err := s.browser.BrowsePrograms(ctx, filter)
+// Browse enumerates programs for every filter and merges them, de-duped by
+// URL (so multi-region searches don't double-count). Merged order follows
+// the filter order, then listing order within each.
+func (s *DiscoverService) Browse(ctx context.Context, filters []osvita.SpecFilter) ([]osvita.SpecProgram, error) {
+	var (
+		out  []osvita.SpecProgram
+		seen = map[string]struct{}{}
+	)
+	for _, f := range filters {
+		progs, err := s.browser.BrowsePrograms(ctx, f)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range progs {
+			if _, dup := seen[p.URL]; dup {
+				continue
+			}
+			seen[p.URL] = struct{}{}
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+// Analyze scores the user against the given programs (cache-aware fetch +
+// ComputeRating + Analyze), concurrently and bounded by s.workers. Programs
+// that fail to fetch/decode are dropped. The result is NOT sorted — callers
+// growing the set incrementally ("show more") merge then SortMatches once.
+func (s *DiscoverService) Analyze(ctx context.Context, programs []osvita.SpecProgram, in DiscoverInput) []ProgramMatch {
+	matches := make([]ProgramMatch, len(programs))
+	sem := make(chan struct{}, s.workers)
+	var wg sync.WaitGroup
+	for i, p := range programs {
+		select {
+		case <-ctx.Done():
+			return nil
+		case sem <- struct{}{}:
+		}
+		wg.Add(1)
+		go func(i int, p osvita.SpecProgram) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if m, ok := s.analyzeOne(ctx, p, in); ok {
+				matches[i] = m
+			}
+		}(i, p)
+	}
+	wg.Wait()
+
+	out := matches[:0]
+	for _, m := range matches {
+		if m.Program.URL != "" {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// WhereCanIGetIn is the one-shot convenience: browse every filter, analyze
+// the first `limit` merged programs, return them ranked by chance. limit ≤ 0
+// means "no cap". Found is the full merged count (≥ analyzed) so callers can
+// flag a capped list.
+func (s *DiscoverService) WhereCanIGetIn(ctx context.Context, in DiscoverInput, limit int, filters ...osvita.SpecFilter) (DiscoverResult, error) {
+	programs, err := s.Browse(ctx, filters)
 	if err != nil {
 		return DiscoverResult{}, err
 	}
@@ -110,37 +167,9 @@ func (s *DiscoverService) WhereCanIGetIn(ctx context.Context, filter osvita.Spec
 	if limit > 0 && len(programs) > limit {
 		programs = programs[:limit]
 	}
-
-	matches := make([]ProgramMatch, len(programs))
-	sem := make(chan struct{}, s.workers)
-	var wg sync.WaitGroup
-	for i, p := range programs {
-		select {
-		case <-ctx.Done():
-			return DiscoverResult{}, ctx.Err()
-		case sem <- struct{}{}:
-		}
-		wg.Add(1)
-		go func(i int, p osvita.SpecProgram) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			m, ok := s.analyzeOne(ctx, p, in)
-			if ok {
-				matches[i] = m
-			}
-		}(i, p)
-	}
-	wg.Wait()
-
-	// Drop programs that failed to fetch/decode (zero-value URL marks them).
-	out := matches[:0]
-	for _, m := range matches {
-		if m.Program.URL != "" {
-			out = append(out, m)
-		}
-	}
-	sortMatches(out)
-	return DiscoverResult{Found: found, Matches: out}, nil
+	matches := s.Analyze(ctx, programs, in)
+	SortMatches(matches)
+	return DiscoverResult{Found: found, Matches: matches}, nil
 }
 
 // analyzeOne fetches a single program and computes the user's standing on it.
@@ -165,9 +194,9 @@ func (s *DiscoverService) analyzeOne(ctx context.Context, p osvita.SpecProgram, 
 	return ProgramMatch{Program: p, Rating: rating, Analysis: analysis}, true
 }
 
-// sortMatches ranks best-chance-first: higher ChanceLevel wins, ties broken
+// SortMatches ranks best-chance-first: higher ChanceLevel wins, ties broken
 // by more remaining spots, then better (lower) rank.
-func sortMatches(m []ProgramMatch) {
+func SortMatches(m []ProgramMatch) {
 	sort.SliceStable(m, func(i, j int) bool {
 		a, b := m[i].Analysis, m[j].Analysis
 		if a.Chance != b.Chance {

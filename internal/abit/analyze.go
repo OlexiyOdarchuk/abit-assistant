@@ -42,6 +42,31 @@ func (c ChanceLevel) Emoji() string {
 	return "❔"
 }
 
+// Tier is the reach/match/safety bucket used by the "where can I get in"
+// list — the standard admissions framing for spreading priorities so a
+// candidate doesn't burn them all on long shots.
+type Tier int
+
+const (
+	TierNone   Tier = iota // chance couldn't be classified (no budget data)
+	TierReach              // ambitious: low chance or no free seats
+	TierMatch              // borderline: depends on others dropping out
+	TierSafety             // confident: ranks within the free seats
+)
+
+// Tier maps a ChanceLevel into its reach/match/safety bucket.
+func (c ChanceLevel) Tier() Tier {
+	switch c {
+	case ChanceHigh, ChanceHighQuota1, ChanceHighQuota2:
+		return TierSafety
+	case ChanceMedium:
+		return TierMatch
+	case ChanceLow, ChanceZero:
+		return TierReach
+	}
+	return TierNone
+}
+
 // Label returns the human-readable name of the chance level.
 func (c ChanceLevel) Label() string {
 	switch c {

@@ -73,7 +73,7 @@ func TestDiscover_RanksCapsAndDropsFailures(t *testing.T) {
 	}}
 	ds := service.NewDiscoverService(browser, ps, 4)
 
-	res, err := ds.WhereCanIGetIn(context.Background(), osvita.SpecFilter{}, discoverInput(), 0)
+	res, err := ds.WhereCanIGetIn(context.Background(), discoverInput(), 0, osvita.SpecFilter{})
 	if err != nil {
 		t.Fatalf("WhereCanIGetIn: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestDiscover_LimitCapsFetched(t *testing.T) {
 	}}
 	ds := service.NewDiscoverService(browser, ps, 4)
 
-	res, err := ds.WhereCanIGetIn(context.Background(), osvita.SpecFilter{}, discoverInput(), 2)
+	res, err := ds.WhereCanIGetIn(context.Background(), discoverInput(), 2, osvita.SpecFilter{})
 	if err != nil {
 		t.Fatalf("WhereCanIGetIn: %v", err)
 	}
