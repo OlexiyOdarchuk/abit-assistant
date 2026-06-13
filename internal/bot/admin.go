@@ -254,6 +254,25 @@ func (b *Bot) runBroadcast(adminID int64, text string) {
 		return
 	}
 
+	// Pre-flight: send the exact payload to the admin first. Telegram
+	// rejects malformed Markdown with a 400 — catching that here turns a
+	// silent "all N sends failed" into one clear message, and spares
+	// every user a broken delivery attempt. It's validation only: the
+	// admin gets one preview copy and the loop below still counts the real
+	// audience exactly, so the delivered/total figures stay honest.
+	if _, err := b.tg.Send(&tele.Chat{ID: adminID}, text, tele.ModeMarkdown); err != nil {
+		b.log.Warn("broadcast preflight failed", "err", err)
+		// Plain text on purpose: the whole point is that Markdown parsing
+		// just failed, so the diagnostic itself must not depend on it.
+		if _, sendErr := b.tg.Send(&tele.Chat{ID: adminID},
+			"📣 Розсилку скасовано.\n\nТекст не вдалося надіслати навіть тобі — "+
+				"найімовірніше зламана Markdown-розмітка. Перевір зірочки/підкреслення "+
+				"і спробуй ще раз.\n\nПомилка: "+err.Error()); sendErr != nil {
+			b.log.Warn("broadcast preflight notify failed", "err", sendErr)
+		}
+		return
+	}
+
 	var delivered, failed int
 	for _, id := range ids {
 		if ctx.Err() != nil {

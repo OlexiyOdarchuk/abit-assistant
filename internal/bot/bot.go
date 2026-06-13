@@ -100,14 +100,18 @@ func (b *Bot) Run(ctx context.Context) error {
 }
 
 // onTelegramError builds a handler invoked by telebot for unexpected
-// errors during update processing. We log and swallow — restarting the
-// poller mid-update would be more disruptive than dropping one message.
+// errors during update processing. Every handler error already flows
+// through the logUpdates middleware (the outermost in the chain), which
+// logs it at Error level with richer context (elapsed time, message
+// text). Logging again here would double every error line — so this
+// stays at Debug, present only as a backstop for errors that somehow
+// bypass the middleware chain.
 func onTelegramError(log *slog.Logger) func(error, tele.Context) {
 	return func(err error, c tele.Context) {
 		uid := int64(0)
 		if c != nil && c.Sender() != nil {
 			uid = c.Sender().ID
 		}
-		log.Error("telegram handler error", "err", err, "user_id", uid)
+		log.Debug("telegram OnError backstop", "err", err, "user_id", uid)
 	}
 }
