@@ -3,6 +3,15 @@
   import { profile, profileFilled } from '../lib/state.svelte.js'
   import { tierColor } from '../lib/chance.js'
   import Chance from '../lib/Chance.svelte'
+  import Loading from '../lib/Loading.svelte'
+
+  const discoverPhrases = [
+    'Шукаю програми за фільтром…',
+    'Тягну дані кожної програми…',
+    'Рахую твої шанси на кожній…',
+    'Сортую за шансом на бюджет…',
+    'Майже готово…',
+  ]
 
   let filters = $state(null)
   let filtersErr = $state('')
@@ -39,11 +48,10 @@
         galuz,
         regions: [...regions],
         budgetOnly,
-        limit: 30,
+        limit: 18,
         profile: {
           nmt: { ...profile.nmt },
           quotas: [...profile.quotas],
-          regionCoef: profile.regionCoef,
           creative: profile.creative,
         },
       })
@@ -113,6 +121,8 @@
   {/if}
 
   {#if error}<p class="error">⚠️ {error}</p>{/if}
+
+  {#if loading}<Loading phrases={discoverPhrases} />{/if}
 
   {#if result}
     {#if result.matches.length === 0}

@@ -9,19 +9,23 @@ import (
 // profileReq is the stateless user profile carried in request bodies — the
 // web has no accounts (v1), so the client sends the NMT scores and settings
 // with each request. Mirrors what ComputeRating / Analyze / Discover need.
+//
+// Note: the regional coefficient (РК) is NOT a user setting — it is a
+// constant of the oblast where the university sits, applied automatically.
+// So we always pass RegionCoef: true and let ComputeRating use the program's
+// own prog.RK (which is 1.0 for regions without a coefficient → a no-op).
 type profileReq struct {
-	NMT        map[string]float64 `json:"nmt"`
-	Quotas     []string           `json:"quotas"`
-	RegionCoef bool               `json:"regionCoef"`
-	Creative   float64            `json:"creative"`
+	NMT      map[string]float64 `json:"nmt"`
+	Quotas   []string           `json:"quotas"`
+	Creative float64            `json:"creative"`
 }
 
 func (p profileReq) rating() abit.RatingInput {
-	return abit.RatingInput{NMT: p.NMT, CreativeScore: p.Creative, RegionCoef: p.RegionCoef}
+	return abit.RatingInput{NMT: p.NMT, CreativeScore: p.Creative, RegionCoef: true}
 }
 
 func (p profileReq) discoverInput() service.DiscoverInput {
-	return service.DiscoverInput{NMT: p.NMT, CreativeScore: p.Creative, RegionCoef: p.RegionCoef, Quotas: p.Quotas}
+	return service.DiscoverInput{NMT: p.NMT, CreativeScore: p.Creative, RegionCoef: true, Quotas: p.Quotas}
 }
 
 // --- responses ---

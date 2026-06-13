@@ -1,12 +1,8 @@
 <script>
-  import { profile, SUBJECTS, REQUIRED_SUBJECTS, QUOTAS } from './state.svelte.js'
+  import { profile, REQUIRED_SUBJECTS, ELECTIVE_SUBJECTS, QUOTAS } from './state.svelte.js'
 
-  // showExtras lets the onboarding hide optional fields behind a toggle.
-  let { showExtras = $bindable(true) } = $props()
-
-  const isRequired = (s) => REQUIRED_SUBJECTS.includes(s)
-  const required = SUBJECTS.filter(isRequired)
-  const optional = SUBJECTS.filter((s) => !isRequired(s))
+  // showExtras controls only the truly-optional block (quotas + creative).
+  let { showExtras = true } = $props()
 
   function setScore(s, v) {
     const n = Number(v)
@@ -22,13 +18,15 @@
     const n = Number(v)
     profile.creative = v === '' || Number.isNaN(n) ? 0 : Math.min(200, n)
   }
+
+  let hasElective = $derived(ELECTIVE_SUBJECTS.some((s) => Number(profile.nmt[s]) > 0))
 </script>
 
 <div class="pf">
   <div class="block">
     <p class="block-label">Обов'язкові предмети НМТ</p>
     <div class="grid">
-      {#each required as s}
+      {#each REQUIRED_SUBJECTS as s}
         <label class="subj">
           <span>🔒 {s}</span>
           <input
@@ -41,24 +39,28 @@
     </div>
   </div>
 
-  <details class="extras" open={showExtras}>
-    <summary>Додаткові предмети та налаштування</summary>
-    <div class="block">
-      <p class="block-label">4-й предмет на вибір (та інші бали)</p>
-      <div class="grid">
-        {#each optional as s}
-          <label class="subj">
-            <span>{s}</span>
-            <input
-              type="number" min="100" max="200" step="0.001" placeholder="—"
-              value={profile.nmt[s] ?? ''}
-              oninput={(e) => setScore(s, e.currentTarget.value)}
-            />
-          </label>
-        {/each}
-      </div>
+  <div class="block">
+    <p class="block-label">
+      4-й предмет на вибір
+      <span class="req-mark" class:done={hasElective}>{hasElective ? '✓' : 'обов’язково'}</span>
+    </p>
+    <p class="hint">НМТ — це 4 предмети. Впиши бал хоча б за один із цих (свій 4-й):</p>
+    <div class="grid">
+      {#each ELECTIVE_SUBJECTS as s}
+        <label class="subj">
+          <span>{s}</span>
+          <input
+            type="number" min="100" max="200" step="0.001" placeholder="—"
+            value={profile.nmt[s] ?? ''}
+            oninput={(e) => setScore(s, e.currentTarget.value)}
+          />
+        </label>
+      {/each}
     </div>
+  </div>
 
+  <details class="extras" open={showExtras}>
+    <summary>Квоти та творчий конкурс (необов'язково)</summary>
     <div class="block">
       <p class="block-label">Квоти</p>
       <div class="chips">
@@ -69,12 +71,7 @@
         {/each}
       </div>
     </div>
-
-    <div class="block row">
-      <label class="toggle">
-        <input type="checkbox" bind:checked={profile.regionCoef} />
-        Регіональний коефіцієнт (РК)
-      </label>
+    <div class="block">
       <label class="subj inline">
         <span>🎨 Творчий конкурс</span>
         <input
@@ -88,9 +85,17 @@
 </div>
 
 <style>
-  .pf { display: flex; flex-direction: column; gap: 0.5rem; }
-  .block { margin-bottom: 0.4rem; }
-  .block-label { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 0 0 0.6rem; }
+  .pf { display: flex; flex-direction: column; gap: 1rem; }
+  .block-label {
+    font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 0.5rem; display: flex; align-items: center; gap: 0.5rem;
+  }
+  .req-mark {
+    font-size: 0.62rem; letter-spacing: 0.04em; padding: 0.1rem 0.45rem; border-radius: 999px;
+    background: var(--reach-soft); color: var(--reach);
+  }
+  .req-mark.done { background: var(--safety-soft); color: var(--safety); }
+  .hint { color: var(--muted); font-size: 0.85rem; margin: -0.3rem 0 0.6rem; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.7rem; }
   .subj { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }
   .subj > span { color: var(--muted); }
@@ -105,6 +110,4 @@
   }
   .chip.on { background: var(--accent); color: #fff; border-color: var(--accent); }
   :root.dark .chip.on { color: #07101f; }
-  .row { display: flex; gap: 2rem; align-items: flex-end; flex-wrap: wrap; }
-  .toggle { display: flex; gap: 0.5rem; align-items: center; cursor: pointer; }
 </style>

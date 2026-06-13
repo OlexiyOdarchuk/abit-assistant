@@ -1,9 +1,24 @@
 <script>
   import { analyze, simulate } from '../lib/api.js'
-  import { profile, profileFilled, saveList, removeList, isSaved } from '../lib/state.svelte.js'
+  import { profile, profileFilled, saveList, removeList, isSaved, addHistory } from '../lib/state.svelte.js'
   import { chanceMeta } from '../lib/chance.js'
   import Chance from '../lib/Chance.svelte'
   import Applicants from '../lib/Applicants.svelte'
+  import Loading from '../lib/Loading.svelte'
+
+  const analyzePhrases = [
+    'Відкриваю сторінку програми…',
+    'Тягну список заяв з osvita…',
+    'Рахую реальних конкурентів…',
+    'Визначаю твоє місце і шанс…',
+    'Майже готово…',
+  ]
+  const simPhrases = [
+    'Дивлюсь, хто куди ще подався…',
+    'Перевіряю abit-poisk…',
+    'Хто проходить на вищий пріоритет деінде…',
+    'Перераховую твої шанси…',
+  ]
 
   let { initialUrl = '' } = $props()
 
@@ -25,6 +40,11 @@
     sim = null
     try {
       result = await analyze(u, snapshot())
+      addHistory({
+        url: result.program.url,
+        university: result.program.university,
+        program: result.program.program,
+      })
     } catch (e) {
       error = e.message
     } finally {
@@ -50,7 +70,6 @@
   const snapshot = () => ({
     nmt: { ...profile.nmt },
     quotas: [...profile.quotas],
-    regionCoef: profile.regionCoef,
     creative: profile.creative,
   })
 
@@ -93,6 +112,8 @@
 
   {#if error}<p class="error">⚠️ {error}</p>{/if}
 
+  {#if loading}<Loading phrases={analyzePhrases} />{/if}
+
   {#if result}
     <article class="card prog">
       <h2>{result.program.university}</h2>
@@ -130,6 +151,7 @@
       </div>
 
       {#if simError}<p class="error">⚠️ {simError}</p>{/if}
+      {#if simLoading}<Loading phrases={simPhrases} />{/if}
       {#if sim}
         <div class="sim">
           {#if sim.departures.length === 0}

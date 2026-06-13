@@ -24,7 +24,7 @@
     </div>
 
     <button class="primary big" onclick={finish} disabled={!profileFilled()}>
-      {profileFilled() ? 'Готово, поїхали →' : 'Введи 3 обов’язкові предмети, щоб продовжити'}
+      {profileFilled() ? 'Готово, поїхали →' : 'Впиши 3 обов’язкові + 1 на вибір'}
     </button>
   </div>
 </div>

@@ -1,5 +1,5 @@
 <script>
-  import { profile, lists, SUBJECTS } from '../lib/state.svelte.js'
+  import { profile, lists, history, SUBJECTS } from '../lib/state.svelte.js'
 
   const goAnalyze = (url) => (location.hash = '#/analyze/' + encodeURIComponent(url))
 
@@ -32,7 +32,6 @@
       {#each scores as sc}
         <span class="pill"><b class="mono">{sc.v}</b> {sc.s}</span>
       {/each}
-      {#if profile.regionCoef}<span class="pill soft">РК</span>{/if}
       {#each profile.quotas as q}<span class="pill soft">{q}</span>{/each}
     </div>
     <a class="edit" href="#/profile">✎ Змінити</a>
@@ -52,6 +51,18 @@
       <span class="a-go">Підібрати →</span>
     </a>
   </div>
+
+  {#if history.length}
+    <h3>Нещодавні</h3>
+    <div class="saved">
+      {#each history.slice(0, 5) as h (h.url)}
+        <button class="saved-row" onclick={() => goAnalyze(h.url)}>
+          <strong>{h.university}</strong>
+          <span class="muted">{h.program}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
 
   {#if lists.length}
     <h3>Збережені</h3>
