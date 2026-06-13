@@ -103,7 +103,11 @@ func run() error {
 	// osvitaSrc doubles as the program browser (it implements both
 	// parser.Source and service.ProgramBrowser).
 	discoverSvc := service.NewDiscoverService(osvitaSrc, programSvc, discoverWorkers)
-	simSvc := service.NewPrioritySimulator(applicantSvc, simWorkers, simMaxLookups)
+	// Resolver + ProgramService let the simulator predict placements before
+	// recommendation waves (fetch & rank a competitor's higher-priority
+	// programs); osvitaSrc provides the university directory + /spec/ browse.
+	resolverSvc := service.NewResolver(osvitaSrc)
+	simSvc := service.NewPrioritySimulator(applicantSvc, resolverSvc, programSvc, simWorkers, simMaxLookups)
 
 	b, err := bot.New(bot.Deps{
 		Config:    cfg,

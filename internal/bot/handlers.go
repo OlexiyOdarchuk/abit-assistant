@@ -947,7 +947,19 @@ func buildRefineView(prog *abit.Program, res service.SimResult) (string, *tele.R
 		if res.Baseline.MyRealRank > 0 && res.Refined.MyRealRank > 0 {
 			fmt.Fprintf(&sb, "🏆 Місце: %d → *%d*\n", res.Baseline.MyRealRank, res.Refined.MyRealRank)
 		}
-		fmt.Fprintf(&sb, "📉 Підуть на вищий пріоритет деінде: *%d*\n\n", len(res.Departures))
+		confirmed, predicted := 0, 0
+		for _, d := range res.Departures {
+			if d.Predicted {
+				predicted++
+			} else {
+				confirmed++
+			}
+		}
+		fmt.Fprintf(&sb, "📉 Підуть на вищий пріоритет деінде: *%d*", len(res.Departures))
+		if predicted > 0 {
+			fmt.Fprintf(&sb, " (✅ %d підтверджено · 🔮 %d прогноз)", confirmed, predicted)
+		}
+		sb.WriteString("\n\n")
 		shown := res.Departures
 		if len(shown) > 8 {
 			shown = shown[:8]
@@ -957,10 +969,17 @@ func buildRefineView(prog *abit.Program, res service.SimResult) (string, *tele.R
 			if where == "" {
 				where = "інший ЗВО"
 			}
-			fmt.Fprintf(&sb, "  • %s → %s (пріоритет %d)\n", mdEscape(d.Name), mdEscape(where), d.Priority)
+			mark := "✅"
+			if d.Predicted {
+				mark = "🔮"
+			}
+			fmt.Fprintf(&sb, "  %s %s → %s (пріоритет %d)\n", mark, mdEscape(d.Name), mdEscape(where), d.Priority)
 		}
 		if len(res.Departures) > len(shown) {
 			fmt.Fprintf(&sb, "  …і ще %d\n", len(res.Departures)-len(shown))
+		}
+		if predicted > 0 {
+			sb.WriteString("\n_🔮 прогноз — за балом проходить на свій вищий пріоритет (ще до офіційних рекомендацій)._")
 		}
 	}
 	if res.Masked > 0 {
