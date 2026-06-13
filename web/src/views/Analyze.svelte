@@ -101,8 +101,8 @@
       {#if result.userScore > 0}
         <div class="headline">
           <div class="score-box">
-            <span class="score-num">{result.userScore.toFixed(2)}</span>
-            <span class="score-cap">твій бал</span>
+            <span class="score-num mono">{result.userScore.toFixed(2)}<small>/200</small></span>
+            <span class="score-cap">твій конкурсний бал</span>
           </div>
           <Chance big emoji={meta.emoji} label={meta.label} color={meta.color} />
         </div>
@@ -169,15 +169,21 @@
   .error { color: #dc2626; }
   .prog h2 { margin: 0 0 0.2rem; }
   .subtitle { color: var(--muted); margin: 0 0 1rem; }
-  .headline { display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+  .headline {
+    display: flex; gap: 1.2rem; align-items: center; margin-bottom: 1.2rem; flex-wrap: wrap;
+    padding-bottom: 1.2rem; border-bottom: 1px solid var(--border);
+  }
   .score-box { display: flex; flex-direction: column; line-height: 1; }
-  .score-num { font-size: 2rem; font-weight: 800; color: var(--accent); }
-  .score-cap { font-size: 0.75rem; color: var(--muted); }
-  .breakdown { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.6rem; margin: 0; }
-  .breakdown div { background: var(--hover); border-radius: 10px; padding: 0.5rem 0.7rem; }
-  .breakdown dt { font-size: 0.75rem; color: var(--muted); }
-  .breakdown dd { margin: 0.1rem 0 0; font-size: 1.3rem; font-weight: 700; }
-  .advice { margin-top: 0.8rem; }
+  .score-num { font-size: clamp(2.6rem, 11vw, 3.4rem); font-weight: 700; color: var(--accent); letter-spacing: -0.03em; }
+  .score-num small { font-size: 0.95rem; color: var(--muted); font-weight: 500; margin-left: 0.15rem; }
+  .score-cap { font-size: 0.78rem; color: var(--muted); margin-top: 0.45rem; text-transform: uppercase; letter-spacing: 0.06em; }
+  .breakdown { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.55rem; margin: 0; }
+  .breakdown div {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 0.6rem 0.75rem;
+  }
+  .breakdown dt { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .breakdown dd { margin: 0.2rem 0 0; font-size: 1.5rem; font-weight: 700; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .advice { margin-top: 0.9rem; padding: 0.7rem 0.9rem; background: var(--accent-soft); color: var(--accent-ink); border-radius: 12px; }
   .actions { display: flex; gap: 0.6rem; margin-top: 1rem; flex-wrap: wrap; align-items: center; }
   .btn-link { align-self: center; font-size: 0.9rem; }
   .sim { margin-top: 1rem; padding: 0.9rem; background: var(--hover); border-radius: 12px; }

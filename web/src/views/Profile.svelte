@@ -89,8 +89,9 @@
   .status { font-weight: 600; }
   .status.ok { color: #16a34a; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.7rem; }
-  .subj { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; }
-  .subj input { width: 100%; }
+  .subj { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }
+  .subj > span { color: var(--muted); }
+  .subj input { width: 100%; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .subj.inline { max-width: 220px; }
   .chips { display: flex; gap: 0.5rem; flex-wrap: wrap; }
   .chip {

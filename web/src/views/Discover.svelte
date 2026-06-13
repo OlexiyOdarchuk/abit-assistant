@@ -124,7 +124,7 @@
       </p>
       <div class="matches">
         {#each result.matches as m (m.url)}
-          <button class="match" onclick={() => goAnalyze(m.url)}>
+          <button class="match" style="--tier: {tierColor(m.chanceTier)}" onclick={() => goAnalyze(m.url)}>
             <div class="m-main">
               <strong>{m.university}</strong>
               <span class="m-spec">{m.specialty || m.program}</span>
@@ -168,15 +168,18 @@
     align-items: center;
     gap: 1rem;
     text-align: left;
-    padding: 0.7rem 0.9rem;
+    padding: 0.8rem 0.95rem 0.8rem 1.1rem;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-left: 4px solid var(--tier, var(--border));
+    border-radius: 14px;
     background: var(--card);
+    box-shadow: var(--shadow);
     cursor: pointer;
     font: inherit;
     color: inherit;
+    transition: transform 0.12s, box-shadow 0.12s;
   }
-  .match:hover { background: var(--hover); }
+  .match:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }
   .m-main { display: flex; flex-direction: column; min-width: 0; }
   .m-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .m-spec { color: var(--muted); font-size: 0.85rem; }
