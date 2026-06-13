@@ -30,11 +30,9 @@ type Resolver struct {
 	browser uniBrowser
 	log     *slog.Logger
 
-	mu      sync.Mutex
-	dir     []osvita.University
-	dirErr  error
-	dirOnce bool
-	byUni   map[int][]osvita.SpecProgram // universityId → its programs (cached)
+	mu    sync.Mutex
+	dir   []osvita.University          // cached on first success only
+	byUni map[int][]osvita.SpecProgram // universityId → its programs (cached)
 }
 
 // NewResolver wires the resolver over an osvita parser.
@@ -73,6 +71,14 @@ func (r *Resolver) Resolve(ctx context.Context, university, specialty string) (s
 	if want == "" {
 		return "", false
 	}
+	// Prefer an exact specialty-name match; only fall back to a token-subset
+	// match so a generic word ("право") can't latch onto a different
+	// specialty ("правознавство") the way a raw substring would.
+	for _, p := range progs {
+		if normSpec(p.Specialty) == want {
+			return p.URL, true
+		}
+	}
 	for _, p := range progs {
 		if specMatches(normSpec(p.Specialty), want) {
 			return p.URL, true
@@ -84,12 +90,17 @@ func (r *Resolver) Resolve(ctx context.Context, university, specialty string) (s
 func (r *Resolver) directory(ctx context.Context) ([]osvita.University, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.dirOnce {
-		return r.dir, r.dirErr
+	if r.dir != nil {
+		return r.dir, nil
 	}
-	r.dir, r.dirErr = r.browser.FetchUniversities(ctx)
-	r.dirOnce = true
-	return r.dir, r.dirErr
+	// Cache only on success — a transient fetch error must not permanently
+	// disable the resolver.
+	dir, err := r.browser.FetchUniversities(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r.dir = dir
+	return r.dir, nil
 }
 
 func (r *Resolver) programsOf(ctx context.Context, universityID int) ([]osvita.SpecProgram, error) {
@@ -152,20 +163,29 @@ func isCodeToken(s string) bool {
 	return true
 }
 
-// specMatches reports whether two normalized specialty names correspond. We
-// accept exact equality or one fully containing the other (handles "наук" vs
-// "комп'ютерні науки" abbreviations) — but require the shorter to be
-// non-trivial to avoid spurious substring hits.
+// specMatches reports whether two normalized specialty names correspond via
+// token containment: every word of the shorter name must appear as a whole
+// word in the longer one. This handles abbreviations / extra qualifiers
+// ("комп ютерні науки" vs "прикладні комп ютерні науки") without the
+// false positives a raw substring check produces (a word like "право" is NOT
+// a token of "правознавство", so they won't match).
 func specMatches(a, b string) bool {
-	if a == "" || b == "" {
+	at, bt := strings.Fields(a), strings.Fields(b)
+	if len(at) == 0 || len(bt) == 0 {
 		return false
 	}
-	if a == b {
-		return true
-	}
-	short, long := a, b
+	short, long := at, bt
 	if len(short) > len(long) {
 		short, long = long, short
 	}
-	return len(short) >= 5 && strings.Contains(long, short)
+	set := make(map[string]struct{}, len(long))
+	for _, t := range long {
+		set[t] = struct{}{}
+	}
+	for _, t := range short {
+		if _, ok := set[t]; !ok {
+			return false
+		}
+	}
+	return true
 }

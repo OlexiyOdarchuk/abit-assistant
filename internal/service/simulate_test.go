@@ -126,6 +126,31 @@ func TestSimulate_PredictsPreWave(t *testing.T) {
 	}
 }
 
+func TestSimulate_ExcludedFromOrderIsNotPlaced(t *testing.T) {
+	store := newStore(t)
+	prog := &abit.Program{
+		EB: 40, OKR: 1, Volume: map[string]string{"Максимальний обсяг державного замовлення": "5"},
+	}
+	abits := []abit.Abiturient{
+		{ID: 1, Name: "Спірний О О", Score: 190, Priority: 2, Status: "Допущено", StateEducation: true, Documents: true},
+	}
+	// His higher-priority entry says "Виключено з наказу" — that contains
+	// "наказу" but means he LOST the seat, so he must NOT be removed here.
+	searcher := searcherFromMap(map[string][]abit.ApplicantEntry{
+		"Спірний О О": {{Priority: "1", Status: "Виключено з наказу", University: "КНУ"}},
+	})
+	appSvc := service.NewApplicantService(searcher, store, time.Hour)
+	sim := service.NewPrioritySimulator(appSvc, nil, nil, 4, 40)
+
+	res, err := sim.Simulate(context.Background(), prog, abits, service.SimInput{UserScore: 180})
+	if err != nil {
+		t.Fatalf("Simulate: %v", err)
+	}
+	if len(res.Departures) != 0 {
+		t.Errorf("excluded-from-order applicant should not be a departure, got %+v", res.Departures)
+	}
+}
+
 func TestSimulate_MaskedAndNoProfile(t *testing.T) {
 	store := newStore(t)
 	prog := &abit.Program{EB: 40, OKR: 1, Volume: map[string]string{"Максимальний обсяг державного замовлення": "5"}}

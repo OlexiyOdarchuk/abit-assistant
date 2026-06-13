@@ -32,6 +32,7 @@ func TestResolver_Resolve(t *testing.T) {
 			318: {
 				{URL: "https://x/y2025/r27/318/111/", Specialty: "F3 Комп'ютерні науки"},
 				{URL: "https://x/y2025/r27/318/222/", Specialty: "D5 Маркетинг"},
+				{URL: "https://x/y2025/r27/318/333/", Specialty: "D1 Правознавство"},
 			},
 		},
 	}
@@ -53,6 +54,11 @@ func TestResolver_Resolve(t *testing.T) {
 	// Known university, specialty absent → no match (never guesses).
 	if _, ok := r.Resolve(ctx, "КРОК", "Астрофізика"); ok {
 		t.Error("absent specialty should not resolve")
+	}
+	// "Право" must NOT latch onto "Правознавство" (token-subset, not raw
+	// substring) — guards against the false-positive the audit found.
+	if url, ok := r.Resolve(ctx, "КРОК", "Право"); ok {
+		t.Errorf("«Право» wrongly matched %q (should not substring-match Правознавство)", url)
 	}
 
 	// The university's program list is browsed once, then cached.

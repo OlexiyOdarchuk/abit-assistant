@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 const universitiesPath = "/doc/json/universities_0.json"
@@ -92,9 +93,16 @@ func MatchUniversity(dir []University, name string) (University, bool) {
 				return u, true // exact wins immediately
 			}
 			if strings.Contains(n, target) || strings.Contains(target, n) {
-				// Longer overlap = more specific match.
-				if score := len(n); score > bestScore {
-					best, bestScore, found = u, score, true
+				// The overlap is the shorter of the two names. Require it to
+				// be non-trivial so a short generic token can't latch onto
+				// many institutions, and score by overlap length (longer
+				// shared name = more specific match).
+				overlap := min(utf8.RuneCountInString(n), utf8.RuneCountInString(target))
+				if overlap < 5 {
+					continue
+				}
+				if overlap > bestScore {
+					best, bestScore, found = u, overlap, true
 				}
 			}
 		}

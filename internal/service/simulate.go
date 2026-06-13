@@ -259,14 +259,13 @@ func (s *PrioritySimulator) predictDeparture(ctx context.Context, entries []abit
 }
 
 // isPassingChance reports whether a chance level means the applicant clears
-// the budget cutoff (High or a quota pass) — Medium is too uncertain to act
-// on for a prediction.
+// the budget cutoff. The prediction ranks competitors in the GENERAL pool
+// (their quota status on the target program is unknown to us), so only
+// ChanceHigh is reachable here — the quota-pass levels need quota input we
+// don't pass, and Medium is too uncertain to act on. Erring toward "won't
+// pass" keeps the simulator from over-removing.
 func isPassingChance(c abit.ChanceLevel) bool {
-	switch c {
-	case abit.ChanceHigh, abit.ChanceHighQuota1, abit.ChanceHighQuota2:
-		return true
-	}
-	return false
+	return c == abit.ChanceHigh
 }
 
 // placedHigher reports whether any of the applicant's other applications has
@@ -304,9 +303,16 @@ func betterPriority(entries []abit.ApplicantEntry, herePriority int) int {
 
 // isPlacedStatus reports whether an abit-poisk status means the applicant
 // holds/was offered a budget seat there ("рекомендовано", "до наказу",
-// "включено до наказу", "зараховано").
+// "включено до наказу", "зараховано"). Negative statuses are excluded first
+// because some of them also contain "наказ" (e.g. "виключено з наказу",
+// "наказ про відрахування") and must NOT count as a held seat.
 func isPlacedStatus(status string) bool {
 	low := strings.ToLower(status)
+	for _, neg := range []string{"виключено", "відрахов", "деактив", "скасов", "відмов"} {
+		if strings.Contains(low, neg) {
+			return false
+		}
+	}
 	for _, m := range []string{"рекомендов", "до наказу", "наказ", "зарахов"} {
 		if strings.Contains(low, m) {
 			return true

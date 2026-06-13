@@ -40,9 +40,8 @@ const (
 	fsmKeyDiscAnalyzed = "d_anz"     // how many of browsed are analyzed
 	fsmKeyDiscFound    = "d_found"   // total merged matches
 	fsmKeyDiscRows     = "d_rows"    // JSON []discRow (analyzed+sorted)
-	fsmKeyDiscPage     = "d_page"
-	fsmKeyDiscOnlyPass = "d_pass" // bool: hide reach-tier
-	fsmKeyDiscSpec     = "d_spec" // selected specialty label ("" = all)
+	fsmKeyDiscOnlyPass = "d_pass"    // bool: hide reach-tier
+	fsmKeyDiscSpec     = "d_spec"    // selected specialty label ("" = all)
 
 	discoverBatch    = 10 // programs analyzed per browse/"show more"
 	discoverStoreMax = 60 // cap on browsed programs kept in FSM
@@ -256,7 +255,6 @@ func (b *Bot) runDiscovery(ctx context.Context, c tele.Context, galuz int, sel [
 		fsmKeyDiscRegNames: regNames,
 		fsmKeyDiscContract: contract,
 		fsmKeyDiscFound:    found,
-		fsmKeyDiscPage:     0,
 		fsmKeyDiscOnlyPass: false,
 	}
 	storeBrowsed(data, compact)
@@ -383,12 +381,14 @@ func (b *Bot) handleDiscoverSaveSafe(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
 	uid := senderID(c)
-	rows, _, _, _, _, _, _, err := b.discoverState(c)
+	// Save from the current view so the active specialty / "only passing"
+	// filter is respected — what the user sees is what gets saved.
+	info, err := b.discoverView(c)
 	if err != nil {
 		return err
 	}
 	saved := 0
-	for _, r := range rows {
+	for _, r := range info.view {
 		if r.Tier != int(abit.TierSafety) {
 			continue
 		}
@@ -438,23 +438,42 @@ type discoverViewInfo struct {
 	safe, mid, reach  int
 	galName, regNames string
 	spec              string // active specialty filter ("" = none)
-	found, analyzed   int
+	found             int    // true merged match count (may exceed storedCount)
+	analyzedTarget    int    // how many of the stored browse have been analyzed
+	storedCount       int    // browsed programs kept in FSM (≤ discoverStoreMax)
 	onlyPass          bool
 	contract          bool // search included contract offers
+	hasMore           bool // unanalyzed stored programs remain
 }
 
-// discoverView resolves the current results view from FSM, applying the
-// active specialty and "only passing" filters with a graceful fallback when
-// a filter would empty the list. Both renderDiscoverPage and the result-open
-// handler use it, so a tapped button always opens the program it shows.
+// discoverView resolves the current results view from one FSM read, applying
+// the active specialty and "only passing" filters with a graceful fallback
+// when a filter would empty the list. Both renderDiscoverPage and the
+// result-open / save handlers use it, so a tapped button always opens the
+// program it shows.
 func (b *Bot) discoverView(c tele.Context) (discoverViewInfo, error) {
-	rows, galName, regNames, found, onlyPass, spec, contract, err := b.discoverState(c)
-	if err != nil {
-		return discoverViewInfo{}, err
+	ctx, cancel := context.WithTimeout(context.Background(), listsTimeout)
+	defer cancel()
+	state, err := b.fsm.Get(ctx, senderID(c))
+	if err != nil || state.Name != fsmStateDiscover {
+		return discoverViewInfo{}, errors.New("сесія пошуку завершилась — почни з /menu")
+	}
+	var rows []discRow
+	if raw, _ := state.Data[fsmKeyDiscRows].(string); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &rows)
 	}
 	if len(rows) == 0 {
 		return discoverViewInfo{}, errors.New("результати застаріли — повтори пошук через /menu")
 	}
+	galName, _ := state.Data[fsmKeyDiscGalName].(string)
+	regNames, _ := state.Data[fsmKeyDiscRegNames].(string)
+	found := anyToInt(state.Data[fsmKeyDiscFound])
+	onlyPass, _ := state.Data[fsmKeyDiscOnlyPass].(bool)
+	spec, _ := state.Data[fsmKeyDiscSpec].(string)
+	contract, _ := state.Data[fsmKeyDiscContract].(bool)
+	analyzedTarget := anyToInt(state.Data[fsmKeyDiscAnalyzed])
+	storedCount := len(loadBrowsed(state.Data))
+
 	base := rows
 	if spec != "" {
 		if f := filterBySpec(rows, spec); len(f) > 0 {
@@ -475,7 +494,9 @@ func (b *Bot) discoverView(c tele.Context) (discoverViewInfo, error) {
 	return discoverViewInfo{
 		view: view, safe: safe, mid: mid, reach: reach,
 		galName: galName, regNames: regNames, spec: spec,
-		found: found, analyzed: len(rows), onlyPass: onlyPass, contract: contract,
+		found: found, analyzedTarget: analyzedTarget, storedCount: storedCount,
+		onlyPass: onlyPass, contract: contract,
+		hasMore: analyzedTarget < storedCount,
 	}, nil
 }
 
@@ -499,14 +520,18 @@ func (b *Bot) renderDiscoverPage(c tele.Context, page int) error {
 	}
 	sb.WriteString("\n")
 	fmt.Fprintf(&sb, "🟢 надійних: *%d* · 🟡 на межі: *%d* · 🔴 амбіційних: *%d*\n", info.safe, info.mid, info.reach)
-	if info.found > info.analyzed {
-		fmt.Fprintf(&sb, "_проаналізовано %d з %d — тисни «➕ Ще» для решти_\n", info.analyzed, info.found)
+	switch {
+	case info.hasMore:
+		fmt.Fprintf(&sb, "_проаналізовано %d з %d знайдених — тисни «➕ Ще» для решти_\n",
+			info.analyzedTarget, info.storedCount)
+	case info.found > info.storedCount:
+		fmt.Fprintf(&sb, "_проаналізовано всі %d; усього знайдено %d — звузь область чи спеціальність, щоб охопити решту_\n",
+			info.storedCount, info.found)
 	}
 	sb.WriteString("\nТисни програму — відкриється повний аналіз 👇")
 
-	b.setDiscoverPage(c, page)
 	return renderOrEdit(c, sb.String(), tele.ModeMarkdown,
-		discoverResultsKeyboard(info.view, page, info.onlyPass, info.spec != "", info.analyzed < info.found), tele.NoPreview)
+		discoverResultsKeyboard(info.view, page, info.onlyPass, info.spec != "", info.hasMore), tele.NoPreview)
 }
 
 // --- analyze + state helpers ----------------------------------------------
@@ -557,39 +582,6 @@ func (b *Bot) discoverInput(ctx context.Context, uid int64) (service.DiscoverInp
 		RegionCoef:    settings.RegionCoef,
 		Quotas:        settings.Quotas,
 	}, true
-}
-
-func (b *Bot) discoverState(c tele.Context) (rows []discRow, galName, regNames string, found int, onlyPass bool, spec string, contract bool, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), listsTimeout)
-	defer cancel()
-	state, gerr := b.fsm.Get(ctx, senderID(c))
-	if gerr != nil || state.Name != fsmStateDiscover {
-		return nil, "", "", 0, false, "", false, errors.New("сесія пошуку завершилась — почни з /menu")
-	}
-	if raw, _ := state.Data[fsmKeyDiscRows].(string); raw != "" {
-		_ = json.Unmarshal([]byte(raw), &rows)
-	}
-	galName, _ = state.Data[fsmKeyDiscGalName].(string)
-	regNames, _ = state.Data[fsmKeyDiscRegNames].(string)
-	found = anyToInt(state.Data[fsmKeyDiscFound])
-	onlyPass, _ = state.Data[fsmKeyDiscOnlyPass].(bool)
-	spec, _ = state.Data[fsmKeyDiscSpec].(string)
-	contract, _ = state.Data[fsmKeyDiscContract].(bool)
-	return rows, galName, regNames, found, onlyPass, spec, contract, nil
-}
-
-func (b *Bot) setDiscoverPage(c tele.Context, page int) {
-	ctx, cancel := context.WithTimeout(context.Background(), listsTimeout)
-	defer cancel()
-	uid := senderID(c)
-	state, err := b.fsm.Get(ctx, uid)
-	if err != nil || state.Name != fsmStateDiscover || state.Data == nil {
-		return
-	}
-	state.Data[fsmKeyDiscPage] = page
-	if err := b.fsm.Set(context.Background(), uid, fsmStateDiscover, state.Data); err != nil {
-		b.log.Warn("discover page set", "err", err)
-	}
 }
 
 func storeBrowsed(data map[string]any, progs []discProg) {

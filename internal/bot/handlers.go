@@ -36,6 +36,10 @@ const (
 	fsmKeyPage      = "page"
 	fsmKeyMode      = "mode"
 	fsmKeyOverrides = "overrides"
+	// fsmKeyFromDiscover marks a viewing session that was opened from the
+	// "where can I get in" results, so every re-render of the summary keeps
+	// offering the "back to results" button.
+	fsmKeyFromDiscover = "from_discover"
 )
 
 // Search list display modes — toggled by the user from the results page.
@@ -567,11 +571,17 @@ func (b *Bot) renderSummary(c tele.Context, prog *abit.Program, rawURL string, b
 	})
 
 	// Preserve overrides if the user is already mid-session on this URL.
-	// A different URL → drop them (overrides are per-program).
+	// A different URL → drop them (overrides are per-program). Also recover
+	// the "came from discover" flag so re-renders (e.g. back from the refine
+	// screen) keep the "back to results" button.
 	prevState, _ := b.fsm.Get(ctx, uid)
 	overrides := abit.OverrideMap(nil)
+	fromDiscover := backToDiscover
 	if prevState.Name == fsmStateViewing && prevState.Get(fsmKeyURL) == rawURL {
 		overrides = readOverrides(prevState.Data)
+		if v, _ := prevState.Data[fsmKeyFromDiscover].(bool); v {
+			fromDiscover = true
+		}
 	}
 
 	analysis := abit.Analyze(prog, abits, abit.AnalyzeInput{
@@ -595,11 +605,14 @@ func (b *Bot) renderSummary(c tele.Context, prog *abit.Program, rawURL string, b
 	if len(overrides) > 0 {
 		writeOverrides(data, overrides)
 	}
+	if fromDiscover {
+		data[fsmKeyFromDiscover] = true
+	}
 	if err := b.fsm.Set(context.Background(), uid, fsmStateViewing, data); err != nil {
 		b.log.Warn("fsm set failed", "err", err)
 	}
 
-	text, kb := buildSummaryView(prog, analysis, backToDiscover)
+	text, kb := buildSummaryView(prog, analysis, fromDiscover)
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
 }
 
@@ -647,8 +660,10 @@ func (b *Bot) showResultsPage(c tele.Context, rawURL string, page int, mode stri
 	// matches — keeps manual decisions sticky as the user pages around.
 	prevState, _ := b.fsm.Get(ctx, uid)
 	overrides := abit.OverrideMap(nil)
+	fromDiscover := false
 	if prevState.Name == fsmStateViewing && prevState.Get(fsmKeyURL) == rawURL {
 		overrides = readOverrides(prevState.Data)
+		fromDiscover, _ = prevState.Data[fsmKeyFromDiscover].(bool)
 	}
 
 	// Competitors mode degrades to "all" when we can't tell who is who.
@@ -678,6 +693,9 @@ func (b *Bot) showResultsPage(c tele.Context, rawURL string, page int, mode stri
 	}
 	if len(overrides) > 0 {
 		writeOverrides(data, overrides)
+	}
+	if fromDiscover {
+		data[fsmKeyFromDiscover] = true
 	}
 	if err := b.fsm.Set(context.Background(), uid, fsmStateViewing, data); err != nil {
 		b.log.Warn("fsm set failed", "err", err)
