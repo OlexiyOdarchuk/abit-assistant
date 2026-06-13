@@ -1,5 +1,5 @@
-// Package service composes the domain (pkg/abit), the parsers
-// (pkg/parser/...) and the storage layer (internal/storage) into
+// Package service composes the domain (internal/abit), the parsers
+// (internal/parser/...) and the storage layer (internal/storage) into
 // application-level use cases. Presentation entrypoints (bot, server,
 // desktop, CLI) call service methods — they never touch parser or
 // storage directly.
