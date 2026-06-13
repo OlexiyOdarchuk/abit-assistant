@@ -10,11 +10,12 @@ import (
 	"github.com/OlexiyOdarchuk/abit-assistant/pkg/parser/osvita"
 )
 
-// ProgramBrowser enumerates programs matching a /spec/ filter. Satisfied by
-// *osvita.Parser; kept as an interface so DiscoverService can be tested with
-// a double.
+// ProgramBrowser enumerates programs matching a /spec/ filter and exposes
+// the form's filter option tables. Satisfied by *osvita.Parser; kept as an
+// interface so DiscoverService can be tested with a double.
 type ProgramBrowser interface {
 	BrowsePrograms(ctx context.Context, f osvita.SpecFilter) ([]osvita.SpecProgram, error)
+	FetchFilters(ctx context.Context) (osvita.Filters, error)
 }
 
 // DiscoverService powers the "where can I get in" mode: enumerate the
@@ -25,6 +26,11 @@ type DiscoverService struct {
 	programs *ProgramService
 	workers  int
 	log      *slog.Logger
+
+	// filters caches the (static-per-campaign) region/industry option
+	// tables so the picker UI doesn't re-scrape the form on every open.
+	filtersMu sync.Mutex
+	filters   *osvita.Filters
 }
 
 // NewDiscoverService wires the discovery use case. workers caps concurrent
@@ -45,6 +51,23 @@ func NewDiscoverService(browser ProgramBrowser, programs *ProgramService, worker
 func (s *DiscoverService) WithLogger(l *slog.Logger) *DiscoverService {
 	s.log = l.With("service", "discover")
 	return s
+}
+
+// Filters returns the region and industry option tables for the picker UI,
+// caching the result after the first successful fetch (they're static across
+// a campaign).
+func (s *DiscoverService) Filters(ctx context.Context) (osvita.Filters, error) {
+	s.filtersMu.Lock()
+	defer s.filtersMu.Unlock()
+	if s.filters != nil {
+		return *s.filters, nil
+	}
+	f, err := s.browser.FetchFilters(ctx)
+	if err != nil {
+		return osvita.Filters{}, err
+	}
+	s.filters = &f
+	return f, nil
 }
 
 // DiscoverInput is the user's profile, enough to compute their rating and

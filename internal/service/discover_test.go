@@ -13,12 +13,19 @@ import (
 )
 
 type fakeBrowser struct {
-	progs []osvita.SpecProgram
-	err   error
+	progs        []osvita.SpecProgram
+	err          error
+	filters      osvita.Filters
+	filtersCalls int
 }
 
 func (f *fakeBrowser) BrowsePrograms(_ context.Context, _ osvita.SpecFilter) ([]osvita.SpecProgram, error) {
 	return f.progs, f.err
+}
+
+func (f *fakeBrowser) FetchFilters(_ context.Context) (osvita.Filters, error) {
+	f.filtersCalls++
+	return f.filters, nil
 }
 
 // discoverProg builds a minimal analyzable program: the three required
@@ -85,6 +92,31 @@ func TestDiscover_RanksCapsAndDropsFailures(t *testing.T) {
 	}
 	if res.Matches[0].Rating <= 0 {
 		t.Errorf("rating not computed: %v", res.Matches[0].Rating)
+	}
+}
+
+func TestDiscover_FiltersCached(t *testing.T) {
+	store := newStore(t)
+	ps := service.NewProgramService(&fakeSource{parse: func(_ context.Context, _ string) (*abit.Program, error) {
+		return discoverProg(10), nil
+	}}, store, time.Hour)
+	browser := &fakeBrowser{filters: osvita.Filters{
+		Regions:    []osvita.FilterOption{{Code: 27, Name: "Київ"}},
+		Industries: []osvita.FilterOption{{Code: 166, Name: "Інформаційні технології"}},
+	}}
+	ds := service.NewDiscoverService(browser, ps, 4)
+
+	for range 3 {
+		f, err := ds.Filters(context.Background())
+		if err != nil {
+			t.Fatalf("Filters: %v", err)
+		}
+		if len(f.Regions) != 1 || len(f.Industries) != 1 {
+			t.Fatalf("unexpected filters: %+v", f)
+		}
+	}
+	if browser.filtersCalls != 1 {
+		t.Errorf("FetchFilters called %d times, want 1 (cached)", browser.filtersCalls)
 	}
 }
 
