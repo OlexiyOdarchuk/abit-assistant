@@ -44,7 +44,6 @@ const fsmKeyCurrentSubject = "current_subject"
 const (
 	minScore      = 100.0
 	maxScore      = 200.0
-	maxCreative   = 200
 	profileTTLMSG = 3 * time.Second
 )
 

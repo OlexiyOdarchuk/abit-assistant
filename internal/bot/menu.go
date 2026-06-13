@@ -43,7 +43,6 @@ const (
 	btnUniqueProfile          = "profile"
 	btnUniqueLists            = "lists"
 	btnUniqueAbout            = "about"
-	btnUniqueDonate           = "donate"
 	btnUniquePagePrev         = "page_prev"
 	btnUniquePageNext         = "page_next"
 	btnUniqueApplicant        = "applicant_view"

@@ -4,7 +4,9 @@ go 1.26.3
 
 require (
 	github.com/PuerkitoBio/goquery v1.12.0
+	github.com/wcharczuk/go-chart/v2 v2.1.2
 	golang.org/x/net v0.52.0
+	golang.org/x/sync v0.20.0
 	gopkg.in/telebot.v3 v3.3.8
 	modernc.org/sqlite v1.50.1
 )
@@ -17,9 +19,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/wcharczuk/go-chart/v2 v2.1.2 // indirect
 	golang.org/x/image v0.18.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
