@@ -27,6 +27,7 @@ type Bot struct {
 	applicantSvc *service.ApplicantService
 	enrichSvc    *service.EnrichService
 	discoverSvc  *service.DiscoverService
+	simSvc       *service.PrioritySimulator
 	log          *slog.Logger
 	// rootCtx is set by Run; long-running goroutines (broadcast) derive
 	// their context from it so SIGTERM stops them gracefully.
@@ -42,6 +43,7 @@ type Deps struct {
 	Applicant  *service.ApplicantService
 	Enrich     *service.EnrichService
 	Discover   *service.DiscoverService
+	Simulate   *service.PrioritySimulator
 	Logger     *slog.Logger
 	PollerWait time.Duration // long-poll timeout; 10s is the safe default
 }
@@ -76,6 +78,7 @@ func New(deps Deps) (*Bot, error) {
 		applicantSvc: deps.Applicant,
 		enrichSvc:    deps.Enrich,
 		discoverSvc:  deps.Discover,
+		simSvc:       deps.Simulate,
 		log:          log.With("component", "bot"),
 	}
 	b.registerRoutes()

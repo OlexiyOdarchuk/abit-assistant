@@ -32,6 +32,8 @@ const (
 	applicantCacheTTL = 24 * time.Hour
 	enrichWorkers     = 4
 	discoverWorkers   = 6
+	simWorkers        = 4
+	simMaxLookups     = 40
 )
 
 func main() {
@@ -101,6 +103,7 @@ func run() error {
 	// osvitaSrc doubles as the program browser (it implements both
 	// parser.Source and service.ProgramBrowser).
 	discoverSvc := service.NewDiscoverService(osvitaSrc, programSvc, discoverWorkers)
+	simSvc := service.NewPrioritySimulator(applicantSvc, simWorkers, simMaxLookups)
 
 	b, err := bot.New(bot.Deps{
 		Config:    cfg,
@@ -109,6 +112,7 @@ func run() error {
 		Applicant: applicantSvc,
 		Enrich:    enrichSvc,
 		Discover:  discoverSvc,
+		Simulate:  simSvc,
 		Logger:    log,
 	})
 	if err != nil {

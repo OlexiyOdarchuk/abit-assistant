@@ -55,6 +55,7 @@ const (
 	btnUniqueViewList         = "view_list"
 	btnUniqueChart            = "chart"
 	btnUniqueSaveList         = "save_list"
+	btnUniqueRefine           = "refine" // priority simulation on the summary
 
 	// Discover ("where can I get in") flow.
 	btnUniqueDiscover            = "disc"

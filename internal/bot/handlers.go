@@ -15,6 +15,7 @@ import (
 
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/bot/callback"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/service"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/visualizer"
 )
@@ -880,12 +881,97 @@ func buildSummaryView(prog *abit.Program, an abit.Analysis, backToDiscover bool)
 			kb.Data("💾 Зберегти", btnUniqueSaveList),
 		),
 	}
+	// Priority simulation only makes sense once the user's score is known.
+	if an.UserScore > 0 {
+		rows = append(rows, kb.Row(kb.Data("🔮 Уточнити: хто піде деінде", btnUniqueRefine)))
+	}
 	// When opened from "where can I get in", offer a way back to that list.
 	if backToDiscover {
 		rows = append(rows, kb.Row(kb.Data("⬅️ До результатів", btnUniqueDiscoverBack)))
 	}
 	rows = append(rows, kb.Row(kb.Data("⬅️ Меню", btnUniqueMenu)))
 	kb.Inline(rows...)
+	return sb.String(), kb
+}
+
+// handleRefine runs the priority simulation for the program in the current
+// viewing state: it removes competitors who place higher elsewhere and shows
+// the refined chance. abit-poisk lookups make it slow, so it runs under the
+// search timeout with a typing indicator.
+func (b *Bot) handleRefine(c tele.Context) error {
+	rawURL, _, _, _, err := b.viewingState(c)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+
+	prog, err := b.programSvc.Fetch(ctx, rawURL)
+	if err != nil {
+		return fmt.Errorf("не вдалося завантажити дані: %w", err)
+	}
+	uid := senderID(c)
+	userScore := b.userRating(ctx, uid, prog)
+	if userScore == 0 {
+		return errors.New("спочатку заповни /profile — без власного балу немає що уточнювати")
+	}
+	settings, _ := b.store.GetUserSettings(ctx, uid)
+
+	_ = c.Notify(tele.Typing)
+	res, err := b.simSvc.Simulate(ctx, prog, abit.Decode(prog), service.SimInput{
+		UserScore:  userScore,
+		UserQuotas: settings.Quotas,
+	})
+	if err != nil {
+		return fmt.Errorf("симуляція не вдалася: %w", err)
+	}
+	text, kb := buildRefineView(prog, res)
+	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
+}
+
+// buildRefineView renders the priority-simulation result: baseline vs
+// refined chance, who was removed and why.
+func buildRefineView(prog *abit.Program, res service.SimResult) (string, *tele.ReplyMarkup) {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "🔮 *Уточнення шансів* — %s\n\n", mdEscape(prog.ProgramName))
+
+	if len(res.Departures) == 0 {
+		sb.WriteString("Поки нікого не вдалося зняти з конкуренції: ніхто з тих, хто вище за тебе, ще не отримав рекомендацію на вищий пріоритет деінде.\n\n")
+		sb.WriteString("_Це працює, коли вже йдуть хвилі рекомендацій. До них — усі ще «Допущено», і знімати нема кого._")
+		if res.LookedUp > 0 {
+			fmt.Fprintf(&sb, "\n\n🔍 Перевірено конкурентів: %d", res.LookedUp)
+		}
+	} else {
+		fmt.Fprintf(&sb, "🎯 *%s → %s*\n", res.Baseline.Chance.Emoji()+" "+res.Baseline.Chance.Label(),
+			res.Refined.Chance.Emoji()+" "+res.Refined.Chance.Label())
+		if res.Baseline.MyRealRank > 0 && res.Refined.MyRealRank > 0 {
+			fmt.Fprintf(&sb, "🏆 Місце: %d → *%d*\n", res.Baseline.MyRealRank, res.Refined.MyRealRank)
+		}
+		fmt.Fprintf(&sb, "📉 Підуть на вищий пріоритет деінде: *%d*\n\n", len(res.Departures))
+		shown := res.Departures
+		if len(shown) > 8 {
+			shown = shown[:8]
+		}
+		for _, d := range shown {
+			where := d.University
+			if where == "" {
+				where = "інший ЗВО"
+			}
+			fmt.Fprintf(&sb, "  • %s → %s (пріоритет %d)\n", mdEscape(d.Name), mdEscape(where), d.Priority)
+		}
+		if len(res.Departures) > len(shown) {
+			fmt.Fprintf(&sb, "  …і ще %d\n", len(res.Departures)-len(shown))
+		}
+	}
+	if res.Masked > 0 {
+		fmt.Fprintf(&sb, "\n🙈 Прихованих імен (не перевірити): %d", res.Masked)
+	}
+	if res.Capped {
+		sb.WriteString("\n⚠️ Перевірено лише найближчих конкурентів (список великий).")
+	}
+
+	kb := &tele.ReplyMarkup{}
+	kb.Inline(kb.Row(kb.Data("⬅️ Назад до аналізу", btnUniqueSummary)))
 	return sb.String(), kb
 }
 

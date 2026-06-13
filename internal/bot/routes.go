@@ -52,6 +52,7 @@ func (b *Bot) registerRoutes() {
 		btnUniqueViewList:              b.handleViewListCB,
 		btnUniqueChart:                 b.handleChartCB,
 		btnUniqueSaveList:              b.handleSaveListCB,
+		btnUniqueRefine:                b.handleRefine,
 		btnUniqueDiscover:              b.handleDiscover,
 		btnUniqueDiscoverGaluz:         b.handleDiscoverGaluz,
 		btnUniqueDiscoverRegionTog:     b.handleDiscoverRegionTog,

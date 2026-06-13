@@ -99,7 +99,7 @@ func TestDistinctSpecs(t *testing.T) {
 		{Spec: "F3 Комп'ютерні науки"},
 		{Spec: "F2 Інженерія ПЗ"},
 		{Spec: "F3 Комп'ютерні науки"}, // dup
-		{Spec: ""},                     // blank skipped
+		{Spec: ""}, // blank skipped
 	}
 	got := distinctSpecs(browsed)
 	// Sorted, deduped, blank dropped.
