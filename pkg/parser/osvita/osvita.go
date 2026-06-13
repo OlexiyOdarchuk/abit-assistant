@@ -35,6 +35,13 @@ const (
 	defaultWorkers  = 8
 	defaultTimeout  = 60 * time.Second
 	defaultRetries  = 3
+
+	// maxRequests caps how many applicant rows a single Parse will
+	// accumulate. Real programs top out at a few thousand; this is ~100x
+	// headroom. It exists only to bound memory if osvita ever malfunctions
+	// and streams a runaway response — without it a broken upstream could
+	// OOM the process. Hitting the cap is a hard error, not a silent trim.
+	maxRequests = 200_000
 )
 
 // Parser fetches competitive offer data from vstup.osvita.ua. The zero value
@@ -174,7 +181,15 @@ func (p *Parser) fanOut(ctx context.Context, prog *abit.Program, sid, uid, year 
 				mu.Lock()
 				requests = append(requests, chunk.Requests...)
 				maps.Copy(subjects, chunk.Subjects)
+				overflow := len(requests) > maxRequests
+				if overflow && firstErr == nil {
+					firstErr = fmt.Errorf("runaway response: more than %d requests", maxRequests)
+				}
 				mu.Unlock()
+				if overflow {
+					cancel() // stop every lane — upstream is misbehaving
+					return
+				}
 				offset += p.pageSize * p.workers
 			}
 		}(w)
