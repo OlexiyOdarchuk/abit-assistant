@@ -1,5 +1,6 @@
 <script>
-  import { persist } from './lib/state.svelte.js'
+  import { persist, ui } from './lib/state.svelte.js'
+  import Onboarding from './views/Onboarding.svelte'
   import Home from './views/Home.svelte'
   import Analyze from './views/Analyze.svelte'
   import Discover from './views/Discover.svelte'
@@ -16,7 +17,6 @@
 
   let route = $state(parse())
   const onHash = () => (route = parse())
-
   $effect(() => {
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
@@ -34,45 +34,53 @@
   const nav = [
     { id: 'analyze', label: 'Аналіз' },
     { id: 'discover', label: 'Куди вступлю' },
-    { id: 'profile', label: 'Профіль' },
     { id: 'lists', label: 'Збережені' },
   ]
 </script>
 
-<div class="app">
-  <header class="topbar">
-    <a class="brand" href="#/home"><span class="mark">◆</span> AbitAssistant</a>
-    <nav>
-      {#each nav as n}
-        <a href="#/{n.id}" class:active={route.name === n.id}>{n.label}</a>
-      {/each}
-    </nav>
-    <button class="theme" onclick={toggleTheme} title="Тема" aria-label="Перемкнути тему">
-      {dark ? '☀' : '☾'}
-    </button>
+{#if !ui.onboarded}
+  <!-- mandatory profile gate: nothing else until the profile is filled -->
+  <header class="topbar minimal">
+    <span class="brand"><span class="mark">◆</span> AbitAssistant</span>
+    <button class="theme" onclick={toggleTheme} aria-label="Тема">{dark ? '☀' : '☾'}</button>
   </header>
+  <Onboarding />
+{:else}
+  <div class="app">
+    <header class="topbar">
+      <a class="brand" href="#/home"><span class="mark">◆</span> AbitAssistant</a>
+      <nav>
+        {#each nav as n}
+          <a href="#/{n.id}" class:active={route.name === n.id}>{n.label}</a>
+        {/each}
+      </nav>
+      <button class="theme" onclick={toggleTheme} title="Тема" aria-label="Перемкнути тему">
+        {dark ? '☀' : '☾'}
+      </button>
+    </header>
 
-  <main>
-    {#if route.name === 'home'}
-      <Home />
-    {:else if route.name === 'discover'}
-      <Discover />
-    {:else if route.name === 'profile'}
-      <Profile />
-    {:else if route.name === 'lists'}
-      <Lists />
-    {:else}
-      {#key route.arg}
-        <Analyze initialUrl={route.arg} />
-      {/key}
-    {/if}
-  </main>
+    <main>
+      {#if route.name === 'discover'}
+        <Discover />
+      {:else if route.name === 'profile'}
+        <Profile />
+      {:else if route.name === 'lists'}
+        <Lists />
+      {:else if route.name === 'analyze'}
+        {#key route.arg}
+          <Analyze initialUrl={route.arg} />
+        {/key}
+      {:else}
+        <Home />
+      {/if}
+    </main>
 
-  <footer>
-    Дані: vstup.osvita.ua · abit-poisk.org.ua ·
-    <a href="https://t.me/AbitAssistant_bot" target="_blank" rel="noreferrer">бот у Telegram</a>
-  </footer>
-</div>
+    <footer>
+      Дані: vstup.osvita.ua · abit-poisk.org.ua ·
+      <a href="https://t.me/AbitAssistant_bot" target="_blank" rel="noreferrer">бот у Telegram</a>
+    </footer>
+  </div>
+{/if}
 
 <style>
   .app { display: flex; flex-direction: column; min-height: 100vh; }
@@ -90,6 +98,7 @@
     border-bottom: 1px solid var(--border);
     flex-wrap: wrap;
   }
+  .topbar.minimal { justify-content: space-between; }
   .brand {
     font-family: var(--font-display);
     font-weight: 800;

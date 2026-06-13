@@ -43,6 +43,15 @@ export const profile = $state({
 
 export const lists = $state(readJSON(LISTS_KEY, []))
 
+const ONBOARDED_KEY = 'aa.onboarded.v1'
+// ui.onboarded gates the whole app: until the user finishes the profile
+// step once, nothing else is reachable.
+export const ui = $state({ onboarded: localStorage.getItem(ONBOARDED_KEY) === '1' })
+
+export function completeOnboarding() {
+  ui.onboarded = true
+}
+
 // persist wires reactive saves; call once from the root component.
 export function persist() {
   $effect(() => {
@@ -50,6 +59,9 @@ export function persist() {
   })
   $effect(() => {
     localStorage.setItem(LISTS_KEY, JSON.stringify(lists))
+  })
+  $effect(() => {
+    localStorage.setItem(ONBOARDED_KEY, ui.onboarded ? '1' : '0')
   })
 }
 
