@@ -22,6 +22,7 @@
   let loading = $state(false)
   let error = $state('')
   let result = $state(null) // {found, matches}
+  let specFilter = $state('') // chosen specialty label; '' = all
 
   $effect(() => {
     getFilters()
@@ -43,6 +44,7 @@
     loading = true
     error = ''
     result = null
+    specFilter = ''
     try {
       result = await discover({
         galuz,
@@ -64,9 +66,27 @@
 
   const goAnalyze = (url) => (location.hash = '#/analyze/' + encodeURIComponent(url))
 
+  // distinct specialty labels among the matches, sorted — the post-browse
+  // narrow-down (osvita's specialty cascade is empty off-season, so we filter
+  // the results we already have instead of querying a specialityId up front).
+  let specs = $derived.by(() => {
+    const set = new Set()
+    for (const m of result?.matches ?? []) if (m.specialty) set.add(m.specialty)
+    return [...set].sort((a, b) => a.localeCompare(b, 'uk'))
+  })
+
+  // matches after applying the active specialty filter (fallback to all if the
+  // chosen specialty is no longer present)
+  let shown = $derived.by(() => {
+    const all = result?.matches ?? []
+    if (!specFilter) return all
+    const f = all.filter((m) => m.specialty === specFilter)
+    return f.length ? f : all
+  })
+
   let counts = $derived.by(() => {
     const c = { 3: 0, 2: 0, 1: 0 }
-    for (const m of result?.matches ?? []) c[m.chanceTier] = (c[m.chanceTier] ?? 0) + 1
+    for (const m of shown) c[m.chanceTier] = (c[m.chanceTier] ?? 0) + 1
     return c
   })
 </script>
@@ -128,12 +148,25 @@
     {#if result.matches.length === 0}
       <p class="muted">За цим фільтром нічого не знайшов — спробуй іншу галузь чи область.</p>
     {:else}
+      {#if specs.length > 1}
+        <div class="specs">
+          <button class="spec" class:on={!specFilter} onclick={() => (specFilter = '')} type="button">
+            Усі спеціальності
+          </button>
+          {#each specs as s}
+            <button class="spec" class:on={specFilter === s} onclick={() => (specFilter = s)} type="button">
+              {s}
+            </button>
+          {/each}
+        </div>
+      {/if}
+
       <p class="summary">
         🟢 надійних: <b>{counts[3]}</b> · 🟡 на межі: <b>{counts[2]}</b> · 🔴 амбіційних: <b>{counts[1]}</b>
         {#if result.found > result.matches.length}<span class="muted"> · знайдено {result.found}, показую найкращі {result.matches.length}</span>{/if}
       </p>
       <div class="matches">
-        {#each result.matches as m (m.url)}
+        {#each shown as m (m.url)}
           <button class="match" style="--tier: {tierColor(m.chanceTier)}" onclick={() => goAnalyze(m.url)}>
             <div class="m-main">
               <strong>{m.university}</strong>
@@ -170,6 +203,18 @@
   }
   .chip.on { background: var(--accent); color: #fff; border-color: var(--accent); }
   .toggle { display: flex; gap: 0.5rem; align-items: center; cursor: pointer; }
+  .specs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 1rem; }
+  .spec {
+    border: 1px solid var(--border);
+    background: var(--card);
+    border-radius: 999px;
+    padding: 0.3em 0.8em;
+    font: inherit;
+    font-size: 0.82rem;
+    color: inherit;
+    cursor: pointer;
+  }
+  .spec.on { background: var(--accent); color: #fff; border-color: var(--accent); }
   .summary { margin: 1rem 0 0.6rem; }
   .matches { display: flex; flex-direction: column; gap: 0.5rem; }
   .match {
