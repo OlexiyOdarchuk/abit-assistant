@@ -876,6 +876,8 @@ func buildSummaryView(prog *abit.Program, an abit.Analysis, backToDiscover bool)
 			switch w {
 			case "license-volume-missing":
 				sb.WriteString("\n⚠️ Ліцензований обсяг не вдалося розпарсити — місце вище — оцінка лише за рангом.")
+			case "budget-volume-is-ceiling":
+				sb.WriteString("\n⚠️ Кількість місць — це *максимальний* обсяг держзамовлення (стеля). Реальних бюджетних місць може бути менше, тож шанс — оптимістична оцінка.")
 			}
 		}
 	}

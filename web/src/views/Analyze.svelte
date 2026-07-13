@@ -95,6 +95,15 @@
 
   let an = $derived(result?.analysis)
   let meta = $derived(result ? chanceMeta(an.chance) : null)
+
+  // Human text for the non-fatal warning codes Analyze may attach.
+  const WARNINGS = {
+    'budget-volume-is-ceiling':
+      'Кількість місць — це максимальний обсяг держзамовлення (стеля). Реальних бюджетних місць може бути менше, тож шанс — оптимістична оцінка.',
+    'license-volume-missing':
+      'Ліцензований обсяг не вдалося визначити — оцінка лише за рангом, без розрахунку вільних місць.',
+  }
+  const warningText = (w) => WARNINGS[w] ?? w
 </script>
 
 <section>
@@ -156,6 +165,11 @@
           {#if an.my_real_rank > 0}<div><dt>Твоє місце</dt><dd>{an.my_real_rank}</dd></div>{/if}
         </dl>
         {#if an.advice}<p class="advice">💡 {an.advice}</p>{/if}
+        {#if an.warnings?.length}
+          {#each an.warnings as w}
+            <p class="warn">⚠️ {warningText(w)}</p>
+          {/each}
+        {/if}
 
         <Histogram scores={result.applicants.map((a) => a.score)} userScore={result.userScore} />
         <ChanceLegend />
@@ -227,6 +241,7 @@
   .breakdown dt { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
   .breakdown dd { margin: 0.2rem 0 0; font-size: 1.5rem; font-weight: 700; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .advice { margin-top: 0.9rem; padding: 0.7rem 0.9rem; background: var(--accent-soft); color: var(--accent-ink); border-radius: 12px; }
+  .warn { margin-top: 0.6rem; padding: 0.7rem 0.9rem; background: color-mix(in srgb, #e6a817 18%, transparent); color: var(--ink); border-radius: 12px; font-size: 0.92rem; line-height: 1.4; }
   .actions { display: flex; gap: 0.6rem; margin-top: 1rem; flex-wrap: wrap; align-items: center; }
   .btn-link { align-self: center; font-size: 0.9rem; }
   .sim { margin-top: 1rem; padding: 0.9rem; background: var(--hover); border-radius: 12px; }

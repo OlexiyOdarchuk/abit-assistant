@@ -240,6 +240,12 @@ func Analyze(prog *Program, abits []Abiturient, in AnalyzeInput) Analysis {
 		return out
 	}
 
+	// The budget figure is the licensing ceiling, not the real state order —
+	// the seat count (and the chance below) is an optimistic upper bound.
+	if prog.BudgetVolumeIsCeiling() {
+		out.Warnings = append(out.Warnings, "budget-volume-is-ceiling")
+	}
+
 	// Seats consumed by each quota (capped at its reservation). Unused
 	// quota seats roll into the general pool automatically because we
 	// subtract only what each quota actually USES, not its full size.
