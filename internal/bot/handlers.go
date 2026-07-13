@@ -898,8 +898,12 @@ func buildSummaryView(prog *abit.Program, an abit.Analysis, backToDiscover bool)
 			kb.Data("💾 Зберегти", btnUniqueSaveList),
 		),
 	}
-	// Priority simulation only makes sense once the user's score is known.
-	if an.UserScore > 0 {
+	// Priority simulation only makes sense once the user's score is known AND
+	// we're still estimating from the competitor field. When osvita has
+	// published the real cutoff (an.Cutoff > 0) the verdict is ground truth —
+	// removing competitors who place elsewhere can't change it, so the
+	// (slow, rate-sensitive) simulation would just report "nothing changed".
+	if an.UserScore > 0 && an.Cutoff <= 0 {
 		rows = append(rows, kb.Row(kb.Data("🔮 Уточнити: хто піде деінде", btnUniqueRefine)))
 	}
 	// When opened from "where can I get in", offer a way back to that list.

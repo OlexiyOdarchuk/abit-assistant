@@ -184,7 +184,7 @@
 
       <div class="actions">
         <button onclick={toggleSave}>{isSaved(result.program.url) ? '💾 Збережено' : '💾 Зберегти'}</button>
-        {#if result.userScore > 0}
+        {#if result.userScore > 0 && !(an.cutoff > 0)}
           <button onclick={runSim} disabled={simLoading}>🔮 {simLoading ? 'Уточнюю…' : 'Хто піде деінде'}</button>
         {/if}
         <a class="btn-link" href={result.program.url} target="_blank" rel="noreferrer">osvita ↗</a>
