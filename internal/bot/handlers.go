@@ -32,10 +32,9 @@ const (
 
 // FSM data keys for the search flow.
 const (
-	fsmKeyURL       = "url"
-	fsmKeyPage      = "page"
-	fsmKeyMode      = "mode"
-	fsmKeyOverrides = "overrides"
+	fsmKeyURL  = "url"
+	fsmKeyPage = "page"
+	fsmKeyMode = "mode"
 	// fsmKeyFromDiscover marks a viewing session that was opened from the
 	// "where can I get in" results, so every re-render of the summary keeps
 	// offering the "back to results" button.
@@ -202,7 +201,7 @@ func (b *Bot) handlePagePrev(c tele.Context) error { return b.flipPage(c, -1) }
 func (b *Bot) handlePageNext(c tele.Context) error { return b.flipPage(c, +1) }
 
 func (b *Bot) flipPage(c tele.Context, delta int) error {
-	rawURL, curPage, mode, _, err := b.viewingState(c)
+	rawURL, curPage, mode, err := b.viewingState(c)
 	if err != nil {
 		return err
 	}
@@ -217,7 +216,7 @@ func (b *Bot) flipPage(c tele.Context, delta int) error {
 // handleToggleMode flips the list between "all" and "competitors", then
 // jumps back to page 0 so the user always sees fresh first-page results.
 func (b *Bot) handleToggleMode(c tele.Context) error {
-	rawURL, _, mode, _, err := b.viewingState(c)
+	rawURL, _, mode, err := b.viewingState(c)
 	if err != nil {
 		return err
 	}
@@ -232,7 +231,7 @@ func (b *Bot) handleToggleMode(c tele.Context) error {
 // handleSummaryCB re-renders the summary screen from the current viewing
 // state. Triggered by the "🎯 Аналіз" button on the list.
 func (b *Bot) handleSummaryCB(c tele.Context) error {
-	rawURL, _, _, _, err := b.viewingState(c)
+	rawURL, _, _, err := b.viewingState(c)
 	if err != nil {
 		return err
 	}
@@ -242,7 +241,7 @@ func (b *Bot) handleSummaryCB(c tele.Context) error {
 // handleViewListCB jumps from summary to the applicants list, restoring
 // the page + mode the user last viewed (page 0, mode "all" on first entry).
 func (b *Bot) handleViewListCB(c tele.Context) error {
-	rawURL, page, mode, _, err := b.viewingState(c)
+	rawURL, page, mode, err := b.viewingState(c)
 	if err != nil {
 		return err
 	}
@@ -253,7 +252,7 @@ func (b *Bot) handleViewListCB(c tele.Context) error {
 // and sends it as a Telegram photo. Coloring marks competitors red and
 // non-competitors green relative to the user's own rating.
 func (b *Bot) handleChartCB(c tele.Context) error {
-	rawURL, _, _, _, err := b.viewingState(c)
+	rawURL, _, _, err := b.viewingState(c)
 	if err != nil {
 		return err
 	}
@@ -288,7 +287,7 @@ func (b *Bot) handleChartCB(c tele.Context) error {
 // for later retrieval via /lists. Returns a quick toast — no full screen
 // change — so the user can continue browsing.
 func (b *Bot) handleSaveListCB(c tele.Context) error {
-	rawURL, _, _, _, err := b.viewingState(c)
+	rawURL, _, _, err := b.viewingState(c)
 	if err != nil {
 		return err
 	}
@@ -326,7 +325,7 @@ func (b *Bot) handleApplicantView(c tele.Context) error {
 	if !ok {
 		return errors.New("втрачено ID абітурієнта")
 	}
-	rawURL, _, _, overrides, err := b.viewingState(c)
+	rawURL, _, _, err := b.viewingState(c)
 	if err != nil {
 		return err
 	}
@@ -344,7 +343,7 @@ func (b *Bot) handleApplicantView(c tele.Context) error {
 	}
 
 	userScore := b.userRating(ctx, senderID(c), prog)
-	text, kb := buildApplicantDetail(*ab, userScore, overrides)
+	text, kb := buildApplicantDetail(*ab, userScore)
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
 }
 
@@ -366,7 +365,7 @@ func (b *Bot) handleApplicantHistory(c tele.Context) error {
 	if !ok {
 		return errors.New("втрачено ID абітурієнта")
 	}
-	rawURL, _, _, _, err := b.viewingState(c)
+	rawURL, _, _, err := b.viewingState(c)
 	if err != nil {
 		return err
 	}
@@ -397,82 +396,11 @@ func (b *Bot) handleApplicantHistory(c tele.Context) error {
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
 }
 
-// handleToggleThreat flips the user's manual verdict on this applicant.
-// If the new state matches the default heuristic, the override is removed
-// (so toggling back and forth ends up in the same state as never touching it).
-func (b *Bot) handleToggleThreat(c tele.Context) error {
-	id, ok := callback.From(c).Int(0)
-	if !ok {
-		return errors.New("втрачено ID абітурієнта")
-	}
-	rawURL, page, mode, _, err := b.viewingState(c)
-	if err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
-	defer cancel()
-
-	prog, err := b.programSvc.Fetch(ctx, rawURL)
-	if err != nil {
-		return fmt.Errorf("не вдалося завантажити дані: %w", err)
-	}
-	ab := findApplicant(abit.Decode(prog), id)
-	if ab == nil {
-		return errors.New("абітурієнта не знайдено")
-	}
-
-	uid := senderID(c)
-	userScore := b.userRating(ctx, uid, prog)
-	if userScore == 0 {
-		return errors.New("спочатку заповни /profile — без власного балу немає з ким порівнювати")
-	}
-
-	// Read FSM directly so we can mutate the data map in place.
-	state, err := b.fsm.Get(ctx, uid)
-	if err != nil {
-		return fmt.Errorf("не вдалося прочитати стан: %w", err)
-	}
-	if state.Data == nil {
-		state.Data = map[string]any{
-			fsmKeyURL: rawURL, fsmKeyPage: page, fsmKeyMode: mode,
-		}
-	}
-	overrides := readOverrides(state.Data)
-	if overrides == nil {
-		overrides = abit.OverrideMap{}
-	}
-
-	defaultVerdict := abit.IsCompetitor(*ab, userScore)
-	currentVerdict := abit.IsCompetitorWith(*ab, userScore, overrides)
-	newVerdict := !currentVerdict
-
-	idStr := strconv.Itoa(id)
-	if newVerdict == defaultVerdict {
-		delete(overrides, idStr)
-	} else {
-		overrides[idStr] = newVerdict
-	}
-	writeOverrides(state.Data, overrides)
-	if err := b.fsm.Set(context.Background(), uid, fsmStateViewing, state.Data); err != nil {
-		return fmt.Errorf("не вдалося зберегти: %w", err)
-	}
-
-	toast := "✅ Позначено як конкурент"
-	if !newVerdict {
-		toast = "🟢 Позначено як НЕ конкурент"
-	}
-	_ = c.Respond(&tele.CallbackResponse{Text: toast})
-
-	text, kb := buildApplicantDetail(*ab, userScore, overrides)
-	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
-}
-
 // handleBackToList re-renders the page the user was on before opening a
 // detail screen. The page index lives in FSM, so this works even after a
 // bot restart.
 func (b *Bot) handleBackToList(c tele.Context) error {
-	rawURL, page, mode, _, err := b.viewingState(c)
+	rawURL, page, mode, err := b.viewingState(c)
 	if err != nil {
 		return err
 	}
@@ -543,8 +471,7 @@ func (b *Bot) showSummaryFromDiscover(c tele.Context, rawURL string) error {
 
 // renderSummary is the common path: takes an already-loaded Program +
 // the URL it came from, reads the user's profile, computes the rating
-// and analysis, persists FSM (preserving any active overrides), edits
-// the message.
+// and analysis, persists FSM, edits the message.
 func (b *Bot) renderSummary(c tele.Context, prog *abit.Program, rawURL string, backToDiscover bool) error {
 	abits := abit.Decode(prog)
 	if len(abits) == 0 {
@@ -568,15 +495,11 @@ func (b *Bot) renderSummary(c tele.Context, prog *abit.Program, rawURL string, b
 		CreativeScore: float64(settings.CreativeScorePrediction),
 	})
 
-	// Preserve overrides if the user is already mid-session on this URL.
-	// A different URL → drop them (overrides are per-program). Also recover
-	// the "came from discover" flag so re-renders (e.g. back from the refine
-	// screen) keep the "back to results" button.
+	// Recover the "came from discover" flag so re-renders (e.g. back from the
+	// refine screen) keep the "back to results" button.
 	prevState, _ := b.fsm.Get(ctx, uid)
-	overrides := abit.OverrideMap(nil)
 	fromDiscover := backToDiscover
 	if prevState.Name == fsmStateViewing && prevState.Get(fsmKeyURL) == rawURL {
-		overrides = readOverrides(prevState.Data)
 		if v, _ := prevState.Data[fsmKeyFromDiscover].(bool); v {
 			fromDiscover = true
 		}
@@ -585,16 +508,12 @@ func (b *Bot) renderSummary(c tele.Context, prog *abit.Program, rawURL string, b
 	analysis := abit.Analyze(prog, abits, abit.AnalyzeInput{
 		UserScore:  userScore,
 		UserQuotas: settings.Quotas,
-		Overrides:  overrides,
 	})
 
 	data := map[string]any{
 		fsmKeyURL:  rawURL,
 		fsmKeyPage: 0,
 		fsmKeyMode: modeAll,
-	}
-	if len(overrides) > 0 {
-		writeOverrides(data, overrides)
 	}
 	if fromDiscover {
 		data[fsmKeyFromDiscover] = true
@@ -605,20 +524,6 @@ func (b *Bot) renderSummary(c tele.Context, prog *abit.Program, rawURL string, b
 
 	text, kb := buildSummaryView(prog, analysis, fromDiscover)
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
-}
-
-// writeOverrides puts an OverrideMap into FSM data under fsmKeyOverrides
-// — encoded as map[string]any so JSON round-trips cleanly.
-func writeOverrides(data map[string]any, ov abit.OverrideMap) {
-	if len(ov) == 0 {
-		delete(data, fsmKeyOverrides)
-		return
-	}
-	enc := make(map[string]any, len(ov))
-	for k, v := range ov {
-		enc[k] = v
-	}
-	data[fsmKeyOverrides] = enc
 }
 
 // showResultsPage runs (or re-runs through cache) the program lookup,
@@ -647,13 +552,11 @@ func (b *Bot) showResultsPage(c tele.Context, rawURL string, page int, mode stri
 	uid := senderID(c)
 	userScore := b.userRating(ctx, uid, prog)
 
-	// Inherit overrides from the previous viewing state when the URL
-	// matches — keeps manual decisions sticky as the user pages around.
+	// Keep the "came from discover" flag sticky as the user pages, when the
+	// previous viewing state is for the same URL.
 	prevState, _ := b.fsm.Get(ctx, uid)
-	overrides := abit.OverrideMap(nil)
 	fromDiscover := false
 	if prevState.Name == fsmStateViewing && prevState.Get(fsmKeyURL) == rawURL {
-		overrides = readOverrides(prevState.Data)
 		fromDiscover, _ = prevState.Data[fsmKeyFromDiscover].(bool)
 	}
 
@@ -664,7 +567,7 @@ func (b *Bot) showResultsPage(c tele.Context, rawURL string, page int, mode stri
 
 	view := abits
 	if mode == modeCompetitors {
-		view = filterCompetitors(abits, userScore, overrides)
+		view = filterCompetitors(abits, userScore)
 	}
 	if len(view) == 0 {
 		view = abits
@@ -682,9 +585,6 @@ func (b *Bot) showResultsPage(c tele.Context, rawURL string, page int, mode stri
 		fsmKeyPage: page,
 		fsmKeyMode: mode,
 	}
-	if len(overrides) > 0 {
-		writeOverrides(data, overrides)
-	}
 	if fromDiscover {
 		data[fsmKeyFromDiscover] = true
 	}
@@ -692,34 +592,34 @@ func (b *Bot) showResultsPage(c tele.Context, rawURL string, page int, mode stri
 		b.log.Warn("fsm set failed", "err", err)
 	}
 
-	text, kb := buildResultsView(prog, view, abits, page, userScore, mode, overrides)
+	text, kb := buildResultsView(prog, view, abits, page, userScore, mode)
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
 }
 
 // filterCompetitors returns applicants that realistically compete with
-// the user for a budget seat, honoring any manual overrides.
-func filterCompetitors(abits []abit.Abiturient, mine float64, overrides abit.OverrideMap) []abit.Abiturient {
+// the user for a budget seat.
+func filterCompetitors(abits []abit.Abiturient, mine float64) []abit.Abiturient {
 	out := make([]abit.Abiturient, 0)
 	for _, ab := range abits {
-		if abit.IsCompetitorWith(ab, mine, overrides) {
+		if abit.IsCompetitor(ab, mine) {
 			out = append(out, ab)
 		}
 	}
 	return out
 }
 
-// viewingState reads the URL, page, mode and per-applicant overrides
-// from FSM. Returns a clear error if the user is not in the
-// search.viewing state — handlers should propagate this to the user.
-func (b *Bot) viewingState(c tele.Context) (rawURL string, page int, mode string, overrides abit.OverrideMap, err error) {
+// viewingState reads the URL, page and mode from FSM. Returns a clear error
+// if the user is not in the search.viewing state — handlers should propagate
+// this to the user.
+func (b *Bot) viewingState(c tele.Context) (rawURL string, page int, mode string, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	state, err := b.fsm.Get(ctx, senderID(c))
 	if err != nil {
-		return "", 0, "", nil, fmt.Errorf("не вдалося прочитати стан: %w", err)
+		return "", 0, "", fmt.Errorf("не вдалося прочитати стан: %w", err)
 	}
 	if state.Name != fsmStateViewing {
-		return "", 0, "", nil, errors.New("сесію переглядання втрачено — почни з /search")
+		return "", 0, "", errors.New("сесію переглядання втрачено — почни з /search")
 	}
 	rawURL = state.Get(fsmKeyURL)
 	if p, ok := state.Data[fsmKeyPage].(float64); ok {
@@ -729,24 +629,7 @@ func (b *Bot) viewingState(c tele.Context) (rawURL string, page int, mode string
 	if mode == "" {
 		mode = modeAll
 	}
-	overrides = readOverrides(state.Data)
-	return rawURL, page, mode, overrides, nil
-}
-
-// readOverrides converts the JSON-decoded "overrides" sub-map of FSM
-// data into a typed abit.OverrideMap. Returns nil for empty/missing.
-func readOverrides(data map[string]any) abit.OverrideMap {
-	raw, ok := data[fsmKeyOverrides].(map[string]any)
-	if !ok || len(raw) == 0 {
-		return nil
-	}
-	out := make(abit.OverrideMap, len(raw))
-	for k, v := range raw {
-		if b, ok := v.(bool); ok {
-			out[k] = b
-		}
-	}
-	return out
+	return rawURL, page, mode, nil
 }
 
 // --- View builders --------------------------------------------------------
@@ -757,7 +640,7 @@ func readOverrides(data map[string]any) abit.OverrideMap {
 // `view` is the (possibly filtered) slice the page is sliced from;
 // `all` is the unfiltered list, used only for the competitor count
 // shown in the header.
-func buildResultsView(prog *abit.Program, view, all []abit.Abiturient, page int, userScore float64, mode string, overrides abit.OverrideMap) (string, *tele.ReplyMarkup) {
+func buildResultsView(prog *abit.Program, view, all []abit.Abiturient, page int, userScore float64, mode string) (string, *tele.ReplyMarkup) {
 	total := len(view)
 	maxPage := (total - 1) / pageSize
 	start := page * pageSize
@@ -771,7 +654,7 @@ func buildResultsView(prog *abit.Program, view, all []abit.Abiturient, page int,
 		fmt.Fprintf(&sb, "🎯 Конкуренти: *%d* / %d · Сторінка %d / %d\n",
 			total, len(all), page+1, maxPage+1)
 	} else {
-		competitorsTotal := countCompetitors(all, userScore, overrides)
+		competitorsTotal := countCompetitors(all, userScore)
 		if userScore > 0 {
 			fmt.Fprintf(&sb, "Заявок: *%d* · 🔴 Конкурентів: *%d* · Сторінка %d / %d\n",
 				total, competitorsTotal, page+1, maxPage+1)
@@ -794,7 +677,7 @@ func buildResultsView(prog *abit.Program, view, all []abit.Abiturient, page int,
 	for i := start; i < end; i++ {
 		ab := view[i]
 		rows = append(rows, kb.Row(kb.Data(
-			applicantButtonLabel(ab, i+1, userScore, overrides),
+			applicantButtonLabel(ab, i+1, userScore),
 			btnUniqueApplicant,
 			callback.Encode(strconv.Itoa(ab.ID)),
 		)))
@@ -802,7 +685,7 @@ func buildResultsView(prog *abit.Program, view, all []abit.Abiturient, page int,
 
 	// Mode toggle — only meaningful when the user has a score and there's
 	// at least one competitor above them.
-	if userScore > 0 && (mode == modeCompetitors || countCompetitors(all, userScore, overrides) > 0) {
+	if userScore > 0 && (mode == modeCompetitors || countCompetitors(all, userScore) > 0) {
 		label := "🎯 Тільки конкуренти"
 		if mode == modeCompetitors {
 			label = "📋 Усі заяви"
@@ -920,7 +803,7 @@ func buildSummaryView(prog *abit.Program, an abit.Analysis, backToDiscover bool)
 // the refined chance. abit-poisk lookups make it slow, so it runs under the
 // search timeout with a typing indicator.
 func (b *Bot) handleRefine(c tele.Context) error {
-	rawURL, _, _, _, err := b.viewingState(c)
+	rawURL, _, _, err := b.viewingState(c)
 	if err != nil {
 		return err
 	}
@@ -1015,13 +898,13 @@ func buildRefineView(prog *abit.Program, res service.SimResult) (string, *tele.R
 	return sb.String(), kb
 }
 
-func countCompetitors(abits []abit.Abiturient, mine float64, overrides abit.OverrideMap) int {
+func countCompetitors(abits []abit.Abiturient, mine float64) int {
 	if mine <= 0 {
 		return 0
 	}
 	n := 0
 	for _, ab := range abits {
-		if abit.IsCompetitorWith(ab, mine, overrides) {
+		if abit.IsCompetitor(ab, mine) {
 			n++
 		}
 	}
@@ -1032,10 +915,10 @@ func countCompetitors(abits []abit.Abiturient, mine float64, overrides abit.Over
 // Compact: rank, competitor marker (when userScore > 0), status marker,
 // name, score. Inline buttons have a pragmatic length cap before
 // Telegram hides text on small screens.
-func applicantButtonLabel(ab abit.Abiturient, rank int, userScore float64, overrides abit.OverrideMap) string {
+func applicantButtonLabel(ab abit.Abiturient, rank int, userScore float64) string {
 	threatMarker := ""
 	if userScore > 0 {
-		if abit.IsCompetitorWith(ab, userScore, overrides) {
+		if abit.IsCompetitor(ab, userScore) {
 			threatMarker = "🔴 "
 		} else {
 			threatMarker = "🟢 "
@@ -1068,9 +951,7 @@ func statusMarker(status string) string {
 }
 
 // buildApplicantDetail renders the full record + actions for one applicant.
-// userScore drives the "competitor" verdict; overrides lets it flip per
-// applicant (the "Вважати конкурентом" / "Не вважати" button).
-func buildApplicantDetail(ab abit.Abiturient, userScore float64, overrides abit.OverrideMap) (string, *tele.ReplyMarkup) {
+func buildApplicantDetail(ab abit.Abiturient, userScore float64) (string, *tele.ReplyMarkup) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "📄 *%s*\n\n", mdEscape(ab.Name))
 	fmt.Fprintf(&sb, "📊 *Статус:* %s\n", mdEscape(ab.Status))
@@ -1108,35 +989,19 @@ func buildApplicantDetail(ab abit.Abiturient, userScore float64, overrides abit.
 		}
 	}
 
-	// Verdict line — visible cue for the current "is competitor" state,
-	// honoring any manual override the user set.
+	// Verdict line — visible cue for whether this applicant competes with
+	// the user for a budget seat.
 	if userScore > 0 {
-		idStr := strconv.Itoa(ab.ID)
-		threat := abit.IsCompetitorWith(ab, userScore, overrides)
-		if _, hasOverride := overrides[idStr]; hasOverride {
-			if threat {
-				sb.WriteString("\n🔴 _Позначено як конкурент вручну_\n")
-			} else {
-				sb.WriteString("\n🟢 _Позначено як НЕ конкурент вручну_\n")
-			}
+		if abit.IsCompetitor(ab, userScore) {
+			sb.WriteString("\n🔴 _Конкурент за твій бюджетний вступ_\n")
+		} else {
+			sb.WriteString("\n🟢 _Не конкурент_\n")
 		}
 	}
 
 	kb := &tele.ReplyMarkup{}
 	idStr := strconv.Itoa(ab.ID)
 	rows := make([]tele.Row, 0, 4)
-
-	// Toggle "competitor?" — only useful when we have a baseline rating
-	// to compare against.
-	if userScore > 0 {
-		threat := abit.IsCompetitorWith(ab, userScore, overrides)
-		label := "🔴 Вважати конкурентом"
-		if threat {
-			label = "🟢 Не вважати конкурентом"
-		}
-		rows = append(rows, kb.Row(kb.Data(
-			label, btnUniqueToggleThreat, callback.Encode(idStr))))
-	}
 
 	if !isMaskedName(ab.Name) {
 		rows = append(rows, kb.Row(kb.Data(

@@ -48,7 +48,6 @@ const (
 	btnUniquePageNext         = "page_next"
 	btnUniqueApplicant        = "applicant_view"
 	btnUniqueApplicantHistory = "applicant_history"
-	btnUniqueToggleThreat     = "toggle_threat"
 	btnUniqueBackToList       = "back_to_list"
 	btnUniqueToggleMode       = "toggle_mode"
 	btnUniqueSummary          = "summary"

@@ -2,25 +2,15 @@ package abit
 
 import (
 	"slices"
-	"strconv"
 	"strings"
 )
 
-// OverrideMap is a manual "is competitor?" verdict the user has set
-// per applicant. Keys are applicant IDs as strings (so the map stays
-// JSON-friendly for persistence in FSM/storage); values are the forced
-// decision. Absent entries fall through to the default IsCompetitor
-// heuristic. Use IsCompetitorWith for lookups.
+// OverrideMap forces the "is competitor?" verdict for specific applicants,
+// keyed by applicant ID as a string. It's consumed by Analyze via
+// AnalyzeInput.Overrides: a false value drops that applicant from the field,
+// a true value keeps them in regardless of score. The priority simulator uses
+// it to remove competitors it determined will place elsewhere.
 type OverrideMap = map[string]bool
-
-// IsCompetitorWith is IsCompetitor with a user override layered on top.
-// A nil map is fine — it behaves identically to IsCompetitor.
-func IsCompetitorWith(ab Abiturient, userScore float64, overrides OverrideMap) bool {
-	if v, has := overrides[strconv.Itoa(ab.ID)]; has {
-		return v
-	}
-	return IsCompetitor(ab, userScore)
-}
 
 // droppedStatuses are substrings whose presence means the applicant is out
 // of the race entirely (withdrew, was deactivated, expelled, refused).
