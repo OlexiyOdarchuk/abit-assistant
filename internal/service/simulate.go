@@ -165,7 +165,7 @@ func (s *PrioritySimulator) Simulate(ctx context.Context, prog *abit.Program, ab
 			entries, err := s.applicants.Search(ctx, cand.ab.Name)
 			if err != nil {
 				if !errors.Is(err, abit.ErrNoData) {
-					s.log.WarnContext(ctx, "simulate lookup", "name", cand.ab.Name, "err", err)
+					s.log.WarnContext(ctx, "simulate lookup", "name", maskName(cand.ab.Name), "err", err)
 				}
 				return
 			}

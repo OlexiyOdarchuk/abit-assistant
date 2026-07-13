@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -74,6 +75,43 @@ func TestApplicantService_Search_NoDataNotCached(t *testing.T) {
 	// Negative results aren't cached — each call hits the source again.
 	if src.calls.Load() != 3 {
 		t.Errorf("expected 3 source calls (no negative caching), got %d", src.calls.Load())
+	}
+}
+
+func TestApplicantService_Refresh_SingleflightDedupes(t *testing.T) {
+	store := newStore(t)
+	release := make(chan struct{})
+	src := &fakeSearcher{search: func(_ context.Context, name string) ([]abit.ApplicantEntry, error) {
+		<-release // hold the lookup open so all callers pile onto one flight
+		return entriesFixture(name), nil
+	}}
+	svc := service.NewApplicantService(src, store, time.Hour)
+
+	const callers = 20
+	var wg sync.WaitGroup
+	errs := make(chan error, callers)
+	for range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := svc.Refresh(context.Background(), "Популярний А Б")
+			errs <- err
+		}()
+	}
+	// Give the goroutines time to enter the flight, then let the single
+	// in-flight lookup complete.
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("caller error: %v", err)
+		}
+	}
+	if got := src.calls.Load(); got != 1 {
+		t.Errorf("expected 1 deduped source call for %d concurrent callers, got %d", callers, got)
 	}
 }
 
