@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/httpx"
 	"github.com/PuerkitoBio/goquery"
 )
 
@@ -80,6 +81,16 @@ func New(opts ...Option) *Client {
 	for _, o := range opts {
 		o(c)
 	}
+	// Gate all traffic to abit-poisk.org.ua. It's rate-sensitive, so pace
+	// the sustained rate low and trip the breaker quickly to fail fast on a
+	// throttle/outage rather than amplifying it. Applied last so it wraps
+	// the (possibly insecure-TLS) transport set by the options above.
+	c.http.Transport = httpx.NewGate(c.http.Transport, httpx.Limits{
+		RPS:           6,
+		Burst:         4,
+		FailThreshold: 5,
+		OpenFor:       20 * time.Second,
+	})
 	return c
 }
 

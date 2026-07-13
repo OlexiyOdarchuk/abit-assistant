@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/httpx"
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/html"
 )
@@ -88,6 +89,18 @@ func New(opts ...Option) *Parser {
 	for _, opt := range opts {
 		opt(p)
 	}
+	// Gate all traffic to vstup.osvita.ua behind a shared rate limiter +
+	// circuit breaker. The fan-out runs up to defaultWorkers requests at
+	// once; the limiter paces the sustained rate so a burst of concurrent
+	// user searches can't turn into a single-IP flood, and the breaker
+	// fails fast (short-circuiting the retry loop) once the host starts
+	// returning 429/5xx. Applied last so it wraps any custom transport.
+	p.client.Transport = httpx.NewGate(p.client.Transport, httpx.Limits{
+		RPS:           12,
+		Burst:         defaultWorkers,
+		FailThreshold: 8,
+		OpenFor:       15 * time.Second,
+	})
 	return p
 }
 
