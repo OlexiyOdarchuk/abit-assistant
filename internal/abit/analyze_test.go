@@ -62,6 +62,93 @@ func formatInt(n int) string {
 	return string(buf[i:])
 }
 
+// progWithCutoff builds a program that also carries osvita's published
+// ground-truth summary fields (real cutoff + enrolled-on-budget count).
+func progWithCutoff(budgetCeiling int, cutoff float64, enrolled int) *Program {
+	return &Program{
+		Volume: map[string]string{
+			"Максимальний обсяг державного замовлення":               itoaForTest(budgetCeiling),
+			"Мінімальний рейтинговий бал серед зарахованих на бюджет": ftoaForTest(cutoff),
+			"Зараховано на бюджет всього":                            itoaForTest(enrolled),
+		},
+	}
+}
+
+func ftoaForTest(f float64) string {
+	whole := int(f)
+	frac := int((f-float64(whole))*100 + 0.5)
+	return formatInt(whole) + "." + twoDigits(frac)
+}
+func twoDigits(n int) string {
+	if n < 0 {
+		n = 0
+	}
+	if n < 10 {
+		return "0" + formatInt(n)
+	}
+	return formatInt(n)
+}
+
+func TestAnalyze_PublishedCutoff_PassWhenAtOrAbove(t *testing.T) {
+	prog := progWithCutoff(28, 177.69, 10)
+	got := Analyze(prog, []Abiturient{ab(1, 190)}, AnalyzeInput{UserScore: 180})
+	if got.Chance != ChanceHigh {
+		t.Errorf("Chance = %v (%s), want High (180 ≥ cutoff 177.69)", got.Chance, got.Chance.Label())
+	}
+	if got.Cutoff != 177.69 {
+		t.Errorf("Cutoff = %v, want 177.69", got.Cutoff)
+	}
+	if got.SeatsFilled != 10 {
+		t.Errorf("SeatsFilled = %d, want 10", got.SeatsFilled)
+	}
+}
+
+func TestAnalyze_PublishedCutoff_BorderlineIsMedium(t *testing.T) {
+	prog := progWithCutoff(28, 177.69, 10)
+	got := Analyze(prog, nil, AnalyzeInput{UserScore: 176.5}) // within 1.5 of cutoff
+	if got.Chance != ChanceMedium {
+		t.Errorf("Chance = %v (%s), want Medium (176.5 just below 177.69)", got.Chance, got.Chance.Label())
+	}
+}
+
+func TestAnalyze_PublishedCutoff_BelowIsLow(t *testing.T) {
+	prog := progWithCutoff(28, 177.69, 10)
+	got := Analyze(prog, nil, AnalyzeInput{UserScore: 160})
+	if got.Chance != ChanceLow {
+		t.Errorf("Chance = %v (%s), want Low (160 well below cutoff)", got.Chance, got.Chance.Label())
+	}
+}
+
+func TestAnalyze_PublishedCutoff_OverridesOptimisticSeatCount(t *testing.T) {
+	// The killer case: МЗП ceiling is 28 and only 3 applicants outrank the
+	// user, so the OLD seat-rank heuristic would gladly say "High" (rank 4 ≤
+	// 28). But the real published cutoff is 177.69 and the user scored 170 —
+	// they did NOT get in. The ground-truth path must report Low, not the
+	// ceiling-inflated High.
+	prog := progWithCutoff(28, 177.69, 10)
+	abits := []Abiturient{ab(1, 195), ab(2, 190), ab(3, 185)} // only 3 above me
+	got := Analyze(prog, abits, AnalyzeInput{UserScore: 170})
+	if got.Chance != ChanceLow {
+		t.Errorf("Chance = %v (%s), want Low — real cutoff 177.69 beats the МЗП-rank optimism",
+			got.Chance, got.Chance.Label())
+	}
+	if got.MyRealRank != 4 {
+		t.Errorf("MyRealRank = %d, want 4 (still computed for display)", got.MyRealRank)
+	}
+}
+
+func TestAnalyze_PublishedCutoff_SuppressesCeilingWarning(t *testing.T) {
+	// With real results published, we're no longer guessing off the ceiling,
+	// so the "budget-volume-is-ceiling" warning must NOT appear.
+	prog := progWithCutoff(28, 177.69, 10)
+	got := Analyze(prog, nil, AnalyzeInput{UserScore: 180})
+	for _, w := range got.Warnings {
+		if w == "budget-volume-is-ceiling" {
+			t.Error("ceiling warning should be suppressed when a real cutoff is published")
+		}
+	}
+}
+
 func TestAnalyze_NoProfile_ReturnsHintOnly(t *testing.T) {
 	got := Analyze(&Program{}, nil, AnalyzeInput{UserScore: 0})
 	if got.Chance != ChanceUnknown {

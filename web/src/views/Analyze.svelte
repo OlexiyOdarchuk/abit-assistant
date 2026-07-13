@@ -161,7 +161,12 @@
           {#if an.budget_total > 0}<div><dt>Бюджетних місць</dt><dd>{an.budget_total}</dd></div>{/if}
           {#if an.quota1_total > 0}<div><dt>Квота 1</dt><dd>{an.quota1_total}</dd></div>{/if}
           {#if an.quota2_total > 0}<div><dt>Квота 2</dt><dd>{an.quota2_total}</dd></div>{/if}
-          <div><dt>Вільних місць</dt><dd>{an.remaining_spots}</dd></div>
+          {#if an.cutoff > 0}
+            <div class="ground"><dt>🎯 Прохідний бал</dt><dd>{an.cutoff.toFixed(2)}</dd></div>
+            {#if an.seats_filled > 0}<div><dt>Зараховано на бюджет</dt><dd>{an.seats_filled}</dd></div>{/if}
+          {:else}
+            <div><dt>Вільних місць</dt><dd>{an.remaining_spots}</dd></div>
+          {/if}
           {#if an.my_real_rank > 0}<div><dt>Твоє місце</dt><dd>{an.my_real_rank}</dd></div>{/if}
         </dl>
         {#if an.advice}<p class="advice">💡 {an.advice}</p>{/if}
@@ -240,6 +245,8 @@
   }
   .breakdown dt { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
   .breakdown dd { margin: 0.2rem 0 0; font-size: 1.5rem; font-weight: 700; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .breakdown .ground { border-color: var(--accent); background: var(--accent-soft); }
+  .breakdown .ground dd { color: var(--accent-ink); }
   .advice { margin-top: 0.9rem; padding: 0.7rem 0.9rem; background: var(--accent-soft); color: var(--accent-ink); border-radius: 12px; }
   .warn { margin-top: 0.6rem; padding: 0.7rem 0.9rem; background: color-mix(in srgb, #e6a817 18%, transparent); color: var(--ink); border-radius: 12px; font-size: 0.92rem; line-height: 1.4; }
   .actions { display: flex; gap: 0.6rem; margin-top: 1rem; flex-wrap: wrap; align-items: center; }

@@ -40,6 +40,34 @@ func (p *Program) BudgetVolumeIsCeiling() bool {
 	return ok && idx == 0
 }
 
+// BudgetCutoffRating returns the actual minimum competitive rating among
+// applicants enrolled on budget, as osvita publishes it once a program has
+// results ("Мінімальний рейтинговий бал серед зарахованих на бюджет"). This
+// is ground truth — the real cutoff, not an estimate — so when it's present
+// the analysis should trust it over the МЗП-ceiling seat heuristic. Returns
+// 0 when the field is absent (early campaign, or no budget enrolment yet).
+//
+// Caveat: this is the minimum across ALL budget enrolments, quota holders
+// included, so on programs with quotas it can sit slightly below the pure
+// general-competition cutoff. Still far more accurate than the ceiling.
+func (p *Program) BudgetCutoffRating() float64 {
+	if p == nil {
+		return 0
+	}
+	return matchVolumeFloat(p.Volume, "Мінімальний рейтинговий бал серед зарахованих на бюджет")
+}
+
+// EnrolledBudget returns how many applicants osvita reports as enrolled on
+// budget ("Зараховано на бюджет всього") — the real number of seats that were
+// actually filled, which is often a fraction of the МЗП ceiling. 0 if absent.
+func (p *Program) EnrolledBudget() int {
+	if p == nil {
+		return 0
+	}
+	v, _, _ := matchVolumeKey(p.Volume, []string{"Зараховано на бюджет всього"})
+	return v
+}
+
 // Quota1Volume returns the licensed capacity reserved for Quota 1
 // (territorial quota for war-affected regions, etc.).
 func (p *Program) Quota1Volume() int {
@@ -63,6 +91,21 @@ func (p *Program) Quota2Volume() int {
 func matchVolume(m map[string]string, candidates []string) int {
 	v, _, _ := matchVolumeKey(m, candidates)
 	return v
+}
+
+// matchVolumeFloat scans m for the first key containing key and returns its
+// value parsed as a float (accepting a comma decimal separator). Returns 0
+// when nothing matches or the value isn't a valid number.
+func matchVolumeFloat(m map[string]string, key string) float64 {
+	for k, v := range m {
+		if strings.Contains(k, key) {
+			s := strings.TrimSpace(strings.ReplaceAll(v, ",", "."))
+			if f, err := strconv.ParseFloat(s, 64); err == nil {
+				return f
+			}
+		}
+	}
+	return 0
 }
 
 // matchVolumeKey is matchVolume that also reports WHICH candidate matched (its

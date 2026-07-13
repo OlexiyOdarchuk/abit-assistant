@@ -6,6 +6,12 @@ import (
 	"strconv"
 )
 
+// cutoffMediumMargin is how far below the published budget cutoff (in rating
+// points) still counts as "borderline" rather than a clear miss. The user's
+// own rating is itself an estimate, and the cutoff can shift between
+// recommendation waves, so a small band around it maps to ChanceMedium.
+const cutoffMediumMargin = 1.5
+
 // ChanceLevel ranks the user's estimated probability of being admitted
 // to the program on a budget seat.
 type ChanceLevel int
@@ -100,6 +106,15 @@ type Analysis struct {
 	MyRealRank       int         `json:"my_real_rank"`      // 1-based rank against real competitors
 	Chance           ChanceLevel `json:"chance"`
 	Advice           string      `json:"advice"`
+
+	// Cutoff is the actual published minimum competitive rating among budget
+	// enrolments ("Мінімальний рейтинговий бал серед зарахованих на бюджет").
+	// When > 0, osvita has real results and the verdict is driven by this
+	// ground truth instead of the МЗП-ceiling seat heuristic. 0 = unavailable.
+	Cutoff float64 `json:"cutoff,omitempty"`
+	// SeatsFilled is the real number enrolled on budget ("Зараховано на
+	// бюджет всього"), published alongside the cutoff. 0 when unavailable.
+	SeatsFilled int `json:"seats_filled,omitempty"`
 
 	// Warnings are non-fatal degradation hints surfaced to the user.
 	// Example: "license-volume-missing" — budget volume unknown, analysis is
@@ -240,9 +255,13 @@ func Analyze(prog *Program, abits []Abiturient, in AnalyzeInput) Analysis {
 		return out
 	}
 
-	// The budget figure is the licensing ceiling, not the real state order —
-	// the seat count (and the chance below) is an optimistic upper bound.
-	if prog.BudgetVolumeIsCeiling() {
+	// Prefer osvita's published ground truth: the real budget cutoff rating
+	// and the real number enrolled. When present these replace the МЗП-based
+	// seat heuristic entirely (see the cutoff verdict after the quota paths).
+	out.Cutoff = prog.BudgetCutoffRating()
+	if out.Cutoff <= 0 && prog.BudgetVolumeIsCeiling() {
+		// No published cutoff → we fall back to ranking against the МЗП
+		// ceiling, which is an optimistic upper bound. Say so.
 		out.Warnings = append(out.Warnings, "budget-volume-is-ceiling")
 	}
 
@@ -279,6 +298,34 @@ func Analyze(prog *Program, abits []Abiturient, in AnalyzeInput) Analysis {
 				rank, q2Avail, out.Quota2Total)
 			return out
 		}
+	}
+
+	// Ground-truth path: osvita published the real budget cutoff. Compare the
+	// user's rating directly against it — this is what actually decided
+	// admission, so it beats every estimate built on the МЗП ceiling. Rank is
+	// still computed for display. Quota holders who reached here didn't pass
+	// their quota, so they compete in the general field against this cutoff.
+	if out.Cutoff > 0 {
+		out.SeatsFilled = prog.EnrolledBudget()
+		out.MyRealRank = rankByScore(general, in.UserScore)
+		switch {
+		case in.UserScore >= out.Cutoff:
+			out.Chance = ChanceHigh
+			out.Advice = fmt.Sprintf(
+				"Твій бал %.2f ≥ прохідного %.2f (за опублікованими результатами) — проходиш на бюджет! 🎉",
+				in.UserScore, out.Cutoff)
+		case in.UserScore >= out.Cutoff-cutoffMediumMargin:
+			out.Chance = ChanceMedium
+			out.Advice = fmt.Sprintf(
+				"Твій бал %.2f майже на прохідному %.2f — на межі. Прохідний бал може ще зрушити між хвилями.",
+				in.UserScore, out.Cutoff)
+		default:
+			out.Chance = ChanceLow
+			out.Advice = fmt.Sprintf(
+				"Твій бал %.2f нижчий за прохідний %.2f — шанси на бюджет малі. 😔",
+				in.UserScore, out.Cutoff)
+		}
+		return out
 	}
 
 	// General pool. Committed enrolees (generalEnrolled) hold their seats
