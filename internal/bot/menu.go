@@ -98,8 +98,6 @@ const (
 	btnUniqueProfileSubjectDelete = "p_subj_del"
 	btnUniqueProfileQuotas        = "p_quotas"
 	btnUniqueProfileQuotaToggle   = "p_quota_t"
-	btnUniqueProfileRegion        = "p_region"
-	btnUniqueProfileRegionToggle  = "p_region_t"
 	btnUniqueProfileCreative      = "p_creative"
 	btnUniqueProfileBack          = "p_back"
 )

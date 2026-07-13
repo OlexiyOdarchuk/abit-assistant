@@ -75,7 +75,6 @@ func (s *DiscoverService) Filters(ctx context.Context) (osvita.Filters, error) {
 type DiscoverInput struct {
 	NMT           map[string]float64
 	CreativeScore float64
-	RegionCoef    bool
 	Quotas        []string
 }
 
@@ -185,7 +184,6 @@ func (s *DiscoverService) analyzeOne(ctx context.Context, p osvita.SpecProgram, 
 	rating := abit.ComputeRating(prog, abit.RatingInput{
 		NMT:           in.NMT,
 		CreativeScore: in.CreativeScore,
-		RegionCoef:    in.RegionCoef,
 	})
 	analysis := abit.Analyze(prog, abits, abit.AnalyzeInput{
 		UserScore:  rating,

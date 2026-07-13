@@ -106,7 +106,6 @@ func TestUserSettings_Roundtrip(t *testing.T) {
 
 	want := storage.UserSettings{
 		Quotas:                  []string{"kv1", "kv2"},
-		RegionCoef:              true,
 		CreativeScorePrediction: 150,
 	}
 	if err := s.SetUserSettings(ctx, 42, want); err != nil {
@@ -116,7 +115,7 @@ func TestUserSettings_Roundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.CreativeScorePrediction != 150 || !got.RegionCoef || len(got.Quotas) != 2 {
+	if got.CreativeScorePrediction != 150 || len(got.Quotas) != 2 {
 		t.Errorf("got %+v", got)
 	}
 
@@ -125,7 +124,7 @@ func TestUserSettings_Roundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if zero.CreativeScorePrediction != 0 || zero.RegionCoef {
+	if zero.CreativeScorePrediction != 0 {
 		t.Errorf("unknown user should be zero value: %+v", zero)
 	}
 }

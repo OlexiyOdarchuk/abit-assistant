@@ -356,7 +356,6 @@ func (b *Bot) userRating(ctx context.Context, uid int64, prog *abit.Program) flo
 	return abit.ComputeRating(prog, abit.RatingInput{
 		NMT:           map[string]float64(nmt),
 		CreativeScore: float64(settings.CreativeScorePrediction),
-		RegionCoef:    settings.RegionCoef,
 	})
 }
 
@@ -567,7 +566,6 @@ func (b *Bot) renderSummary(c tele.Context, prog *abit.Program, rawURL string, b
 	userScore := abit.ComputeRating(prog, abit.RatingInput{
 		NMT:           map[string]float64(nmt),
 		CreativeScore: float64(settings.CreativeScorePrediction),
-		RegionCoef:    settings.RegionCoef,
 	})
 
 	// Preserve overrides if the user is already mid-session on this URL.
@@ -589,13 +587,6 @@ func (b *Bot) renderSummary(c tele.Context, prog *abit.Program, rawURL string, b
 		UserQuotas: settings.Quotas,
 		Overrides:  overrides,
 	})
-	// If the user requested RegionCoef but the source has no usable RK,
-	// the multiplication silently skipped. Surface that to avoid the
-	// "I turned on РК but my score didn't change" confusion.
-	if reqd, avail := abit.RegionCoefRequested(prog, abit.RatingInput{RegionCoef: settings.RegionCoef}); reqd && !avail {
-		analysis.Warnings = append(analysis.Warnings,
-			"region-coef-unavailable")
-	}
 
 	data := map[string]any{
 		fsmKeyURL:  rawURL,
@@ -885,8 +876,6 @@ func buildSummaryView(prog *abit.Program, an abit.Analysis, backToDiscover bool)
 			switch w {
 			case "license-volume-missing":
 				sb.WriteString("\n⚠️ Ліцензований обсяг не вдалося розпарсити — місце вище — оцінка лише за рангом.")
-			case "region-coef-unavailable":
-				sb.WriteString("\n⚠️ Регіональний коефіцієнт увімкнено в профілі, але джерело його не вказало — бал не множиться.")
 			}
 		}
 	}

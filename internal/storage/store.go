@@ -212,8 +212,6 @@ func execMigration(ctx context.Context, sqlDB *sql.DB, name, body string) error 
 type UserSettings struct {
 	// Quotas lists quota codes the user wants applied (e.g. "kv1").
 	Quotas []string `json:"quotas,omitempty"`
-	// RegionCoef toggles the regional coefficient (RK > 1).
-	RegionCoef bool `json:"region_coef,omitempty"`
 	// CreativeScorePrediction is the assumed creative-contest score
 	// (used when the program requires one and the user hasn't taken it
 	// yet — feeds into the calculator).

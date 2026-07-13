@@ -140,7 +140,6 @@ func (b *Bot) handleListRefresh(c tele.Context) error {
 	ratingIn := abit.RatingInput{
 		NMT:           map[string]float64(nmt),
 		CreativeScore: float64(settings.CreativeScorePrediction),
-		RegionCoef:    settings.RegionCoef,
 	}
 
 	oldRating := abit.ComputeRating(item.Program, ratingIn)

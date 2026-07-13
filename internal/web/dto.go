@@ -12,8 +12,8 @@ import (
 //
 // Note: the regional coefficient (РК) is NOT a user setting — it is a
 // constant of the oblast where the university sits, applied automatically.
-// So we always pass RegionCoef: true and let ComputeRating use the program's
-// own prog.RK (which is 1.0 for regions without a coefficient → a no-op).
+// ComputeRating always uses the program's own prog.RK (1.0 for regions
+// without a coefficient → a no-op), so there is nothing to pass here.
 type profileReq struct {
 	NMT      map[string]float64 `json:"nmt"`
 	Quotas   []string           `json:"quotas"`
@@ -21,11 +21,11 @@ type profileReq struct {
 }
 
 func (p profileReq) rating() abit.RatingInput {
-	return abit.RatingInput{NMT: p.NMT, CreativeScore: p.Creative, RegionCoef: true}
+	return abit.RatingInput{NMT: p.NMT, CreativeScore: p.Creative}
 }
 
 func (p profileReq) discoverInput() service.DiscoverInput {
-	return service.DiscoverInput{NMT: p.NMT, CreativeScore: p.Creative, RegionCoef: true, Quotas: p.Quotas}
+	return service.DiscoverInput{NMT: p.NMT, CreativeScore: p.Creative, Quotas: p.Quotas}
 }
 
 // --- responses ---

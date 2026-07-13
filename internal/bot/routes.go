@@ -86,8 +86,6 @@ func (b *Bot) registerRoutes() {
 		btnUniqueProfileSubjectDelete:  b.handleProfileSubjectDelete,
 		btnUniqueProfileQuotas:         b.handleProfileQuotas,
 		btnUniqueProfileQuotaToggle:    b.handleProfileQuotaToggle,
-		btnUniqueProfileRegion:         b.handleProfileRegion,
-		btnUniqueProfileRegionToggle:   b.handleProfileRegionToggle,
 		btnUniqueProfileCreative:       b.handleProfileCreative,
 	} {
 		b.tg.Handle(&tele.Btn{Unique: unique}, h)

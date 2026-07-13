@@ -251,36 +251,6 @@ func (b *Bot) handleProfileQuotaToggle(c tele.Context) error {
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb)
 }
 
-// --- Regional coefficient ------------------------------------------------
-
-func (b *Bot) handleProfileRegion(c tele.Context) error {
-	ctx, cancel := context.WithTimeout(context.Background(), profileTTLMSG)
-	defer cancel()
-	settings, err := b.store.GetUserSettings(ctx, senderID(c))
-	if err != nil {
-		return err
-	}
-	text, kb := buildRegionView(settings.RegionCoef)
-	return renderOrEdit(c, text, tele.ModeMarkdown, kb)
-}
-
-func (b *Bot) handleProfileRegionToggle(c tele.Context) error {
-	uid := senderID(c)
-	ctx, cancel := context.WithTimeout(context.Background(), profileTTLMSG)
-	defer cancel()
-
-	settings, err := b.store.GetUserSettings(ctx, uid)
-	if err != nil {
-		return err
-	}
-	settings.RegionCoef = !settings.RegionCoef
-	if err := b.store.SetUserSettings(ctx, uid, settings); err != nil {
-		return fmt.Errorf("не вдалося зберегти: %w", err)
-	}
-	text, kb := buildRegionView(settings.RegionCoef)
-	return renderOrEdit(c, text, tele.ModeMarkdown, kb)
-}
-
 // --- Creative score ------------------------------------------------------
 
 func (b *Bot) handleProfileCreative(c tele.Context) error {
@@ -367,7 +337,6 @@ func buildProfileView(nmt storage.UserNMT, settings storage.UserSettings) (strin
 	} else {
 		fmt.Fprintf(&sb, "   🏷 Квоти: %s\n", strings.Join(settings.Quotas, ", "))
 	}
-	fmt.Fprintf(&sb, "   🌍 Регіональний коеф.: %s\n", onOff(settings.RegionCoef))
 	if settings.CreativeScorePrediction > 0 {
 		fmt.Fprintf(&sb, "   🎨 Творчий бал: `%d`\n", settings.CreativeScorePrediction)
 	}
@@ -375,10 +344,7 @@ func buildProfileView(nmt storage.UserNMT, settings storage.UserSettings) (strin
 	kb := &tele.ReplyMarkup{}
 	kb.Inline(
 		kb.Row(kb.Data("📝 Бали НМТ", btnUniqueProfileEditNMT)),
-		kb.Row(
-			kb.Data("🏷 Квоти", btnUniqueProfileQuotas),
-			kb.Data("🌍 РК", btnUniqueProfileRegion),
-		),
+		kb.Row(kb.Data("🏷 Квоти", btnUniqueProfileQuotas)),
 		kb.Row(kb.Data("🎨 Творчий конкурс", btnUniqueProfileCreative)),
 		kb.Row(kb.Data("⬅️ Меню", btnUniqueMenu)),
 	)
@@ -468,34 +434,7 @@ func buildQuotasView(active []string) (string, *tele.ReplyMarkup) {
 	return intro, kb
 }
 
-func buildRegionView(active bool) (string, *tele.ReplyMarkup) {
-	intro := fmt.Sprintf(`🌍 *Регіональний коефіцієнт*
-
-Якщо твій ВНЗ дає РК (село / певний регіон), коефіцієнт буде застосовано при розрахунку шансів.
-
-Поточний стан: *%s*`, onOff(active))
-
-	label := "Увімкнути"
-	if active {
-		label = "Вимкнути"
-	}
-
-	kb := &tele.ReplyMarkup{}
-	kb.Inline(
-		kb.Row(kb.Data(label, btnUniqueProfileRegionToggle)),
-		kb.Row(kb.Data("⬅️ До профілю", btnUniqueProfileBack)),
-	)
-	return intro, kb
-}
-
 // --- helpers -------------------------------------------------------------
-
-func onOff(b bool) string {
-	if b {
-		return "✅ увімкнено"
-	}
-	return "❌ вимкнено"
-}
 
 func isKnownSubject(s string) bool {
 	for _, x := range profileSubjects {

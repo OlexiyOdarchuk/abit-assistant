@@ -579,7 +579,6 @@ func (b *Bot) discoverInput(ctx context.Context, uid int64) (service.DiscoverInp
 	return service.DiscoverInput{
 		NMT:           map[string]float64(nmt),
 		CreativeScore: float64(settings.CreativeScorePrediction),
-		RegionCoef:    settings.RegionCoef,
 		Quotas:        settings.Quotas,
 	}, true
 }

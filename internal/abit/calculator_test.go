@@ -103,7 +103,9 @@ func TestComputeRating_CreativeScoreIncluded(t *testing.T) {
 	nearly(t, got, num/den)
 }
 
-func TestComputeRating_RegionCoefMultiplies(t *testing.T) {
+func TestComputeRating_RegionCoefAlwaysMultiplies(t *testing.T) {
+	// РК is a program property, not a user toggle — it applies whenever the
+	// program defines one (> 1).
 	prog := sampleProgram()
 	prog.RK = 1.05
 	got := ComputeRating(prog, RatingInput{
@@ -112,18 +114,16 @@ func TestComputeRating_RegionCoefMultiplies(t *testing.T) {
 			"Математика":      170,
 			"Історія України": 175,
 		},
-		RegionCoef: true,
 	})
 	base := (180*0.35 + 170*0.40 + 175*0.25) / (0.35 + 0.40 + 0.25)
 	nearly(t, got, base*1.05)
 }
 
-func TestComputeRating_RegionCoefIgnoredWhenDisabled(t *testing.T) {
+func TestComputeRating_NoRegionCoefWhenProgramHasNone(t *testing.T) {
 	prog := sampleProgram()
-	prog.RK = 1.05
+	prog.RK = 1 // no regional coefficient → no-op
 	got := ComputeRating(prog, RatingInput{
-		NMT:        map[string]float64{"Українська мова": 180, "Математика": 170, "Історія України": 175},
-		RegionCoef: false,
+		NMT: map[string]float64{"Українська мова": 180, "Математика": 170, "Історія України": 175},
 	})
 	base := (180*0.35 + 170*0.40 + 175*0.25) / (0.35 + 0.40 + 0.25)
 	nearly(t, got, base)
@@ -138,7 +138,6 @@ func TestComputeRating_ClampedAt200(t *testing.T) {
 			"Математика":      200,
 			"Історія України": 200,
 		},
-		RegionCoef: true,
 	})
 	if got != 200 {
 		t.Errorf("got %v, want 200", got)

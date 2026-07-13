@@ -102,8 +102,8 @@ type Analysis struct {
 	Advice           string      `json:"advice"`
 
 	// Warnings are non-fatal degradation hints surfaced to the user.
-	// Examples: "RegionCoef requested but RK not parsed", "budget volume
-	// unknown — analysis is qualitative". Empty when everything resolved.
+	// Example: "license-volume-missing" — budget volume unknown, analysis is
+	// qualitative. Empty when everything resolved.
 	Warnings []string `json:"warnings,omitempty"`
 }
 

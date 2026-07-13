@@ -11,9 +11,6 @@ type RatingInput struct {
 	// CreativeScore is the user-entered prediction for programs that
 	// require a creative contest. 0 means "not provided".
 	CreativeScore float64
-	// RegionCoef, when true, applies the program's regional coefficient
-	// (prog.RK) to the final rating.
-	RegionCoef bool
 }
 
 // ComputeRating returns the applicant's competitive rating on the given
@@ -29,7 +26,10 @@ type RatingInput struct {
 //  4. The total is divided by the sum of the coefficients used — a
 //     weighted average that stays in the 100..200 range regardless of
 //     how many subjects the program weighs.
-//  5. RegionCoef multiplies the result by prog.RK when enabled.
+//  5. The program's regional coefficient (prog.RK) multiplies the result
+//     when the program defines one (> 1). РК is a property of the program /
+//     university, applied automatically to every applicant — it is NOT a
+//     user choice, so there is no toggle.
 //  6. Final result is rounded to 3 decimals and clamped to 200.
 //
 // Returns 0 when the program has no subject rubric, in.NMT is empty,
@@ -105,8 +105,8 @@ func ComputeRating(prog *Program, in RatingInput) float64 {
 	}
 	rating := sumScore / sumCoef
 
-	// 5. Regional coefficient.
-	if in.RegionCoef && prog.RK > 1 {
+	// 5. Regional coefficient — a program property, always applied.
+	if prog.RK > 1 {
 		rating *= prog.RK
 	}
 
@@ -115,12 +115,4 @@ func ComputeRating(prog *Program, in RatingInput) float64 {
 		rating = 200
 	}
 	return math.Round(rating*1000) / 1000
-}
-
-// RegionCoefRequested reports whether the user asked for the regional
-// coefficient AND the program would actually apply it. False when the
-// scraper couldn't determine RK (the toggle is then a silent no-op,
-// which is worth surfacing in the UI).
-func RegionCoefRequested(prog *Program, in RatingInput) (requested, available bool) {
-	return in.RegionCoef, prog != nil && prog.RK > 1
 }
