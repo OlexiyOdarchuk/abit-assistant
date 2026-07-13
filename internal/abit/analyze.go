@@ -3,7 +3,7 @@ package abit
 import (
 	"fmt"
 	"slices"
-	"strings"
+	"strconv"
 )
 
 // ChanceLevel ranks the user's estimated probability of being admitted
@@ -164,9 +164,6 @@ func Analyze(prog *Program, abits []Abiturient, in AnalyzeInput) Analysis {
 		reservedOther                           int // СБ/КВ3-only entrants — admitted on a separate (співбесіда/quota-3) track, NOT the general competition
 	)
 	for _, ab := range abits {
-		if !IsCompetitorWith(ab, in.UserScore, in.Overrides) {
-			continue
-		}
 		hasKV1 := slices.Contains(ab.Quotas, QuotaKV1)
 		hasKV2 := slices.Contains(ab.Quotas, QuotaKV2)
 		// СБ (співбесіда) and КВ3 are alternative admission tracks onto
@@ -174,9 +171,32 @@ func Analyze(prog *Program, abits []Abiturient, in AnalyzeInput) Analysis {
 		// who is ALSO КВ1/КВ2 is a quota entrant via співбесіда → counted
 		// under that quota (КВ1/КВ2 take precedence below).
 		reservedTrack := slices.Contains(ab.Quotas, QuotaSB) || slices.Contains(ab.Quotas, QuotaKV3)
+		enrolled := IsEnrolledStatus(ab.Status)
+		quotaHolder := hasKV1 || hasKV2
 
-		low := strings.ToLower(ab.Status)
-		if strings.Contains(low, "до наказу") || strings.Contains(low, "рекомендовано") {
+		// Admission gate. A manual override wins outright (false → ignore
+		// this applicant everywhere). Otherwise the applicant must be alive
+		// on the budget track; and a PLAIN general/reserved applicant must
+		// additionally score at least as high as the user — someone below
+		// the user can neither outrank them nor take a seat they'd contest.
+		//
+		// Quota holders and already-enrolled applicants are counted
+		// regardless of the user's score: a КВ1 entrant with a lower score
+		// still occupies a reserved КВ1 seat (decided within the quota), and
+		// an enrolled holder has already claimed one. Excluding those
+		// lower-scored quota holders is exactly what used to under-count
+		// quota consumption and inflate the free general pool.
+		if v, forced := in.Overrides[strconv.Itoa(ab.ID)]; forced {
+			if !v {
+				continue
+			}
+		} else if !IsBudgetContender(ab) {
+			continue
+		} else if !enrolled && !quotaHolder && ab.Score < in.UserScore {
+			continue
+		}
+
+		if enrolled {
 			alreadyEnrolled++
 			// Track which track's seat each enrolled holder occupies. These
 			// are committed (до наказу = order issued) — they will NOT drop,

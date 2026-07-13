@@ -222,6 +222,68 @@ func TestAnalyze_EnrolledQuotaHolderConsumesSeat(t *testing.T) {
 	}
 }
 
+func TestAnalyze_LowScoredQuotaHolderShrinksGeneralPool(t *testing.T) {
+	// budget 5, Q1 reserves 2. Two КВ1 applicants score BELOW the user but
+	// still occupy their reserved seats, leaving only 3 seats in the general
+	// pool. With 3 general competitors above the user (rank 4), the honest
+	// verdict is Medium — not the inflated High the old score-filter produced
+	// by dropping the low-scored quota holders and pretending all 5 seats
+	// were up for general grabs.
+	prog := progWithVolume(5, 2, 0)
+	abits := []Abiturient{
+		ab(1, 150, withQuotas(QuotaKV1)), // below me, but takes a Q1 seat
+		ab(2, 155, withQuotas(QuotaKV1)), // below me, but takes a Q1 seat
+		ab(3, 180),
+		ab(4, 185),
+		ab(5, 190), // 3 general competitors above me
+	}
+	got := Analyze(prog, abits, AnalyzeInput{UserScore: 170})
+	if got.MyRealRank != 4 {
+		t.Errorf("rank = %d, want 4", got.MyRealRank)
+	}
+	if got.Chance != ChanceMedium {
+		t.Errorf("Chance = %v (%s), want Medium — two Q1 seats are gone, only 3 general seats left",
+			got.Chance, got.Chance.Label())
+	}
+}
+
+func TestAnalyze_NoQuotaHolders_KeepsFullGeneralPool(t *testing.T) {
+	// Control for the test above: identical general field, but no quota
+	// holders eating into the budget → all 5 seats are general → rank 4
+	// passes comfortably (High).
+	prog := progWithVolume(5, 2, 0)
+	abits := []Abiturient{
+		ab(3, 180),
+		ab(4, 185),
+		ab(5, 190),
+	}
+	got := Analyze(prog, abits, AnalyzeInput{UserScore: 170})
+	if got.Chance != ChanceHigh {
+		t.Errorf("Chance = %v (%s), want High (rank 4, 5 general seats)",
+			got.Chance, got.Chance.Label())
+	}
+}
+
+func TestAnalyze_QuotaConsumptionCappedAtVolume(t *testing.T) {
+	// More КВ1 applicants (3) than Q1 seats (1): consumption is capped at 1,
+	// so exactly one general seat is removed, not three.
+	prog := progWithVolume(4, 1, 0)
+	abits := []Abiturient{
+		ab(1, 150, withQuotas(QuotaKV1)),
+		ab(2, 152, withQuotas(QuotaKV1)),
+		ab(3, 154, withQuotas(QuotaKV1)),
+		ab(4, 185),
+		ab(5, 190),
+		ab(6, 195), // 3 general competitors above me → rank 4
+	}
+	got := Analyze(prog, abits, AnalyzeInput{UserScore: 170})
+	// generalSeats = 4 - min(1,3) = 3. rank 4 > 3 but ≤ 3+5 → Medium.
+	if got.Chance != ChanceMedium {
+		t.Errorf("Chance = %v (%s), want Medium (1 Q1 seat consumed → 3 general)",
+			got.Chance, got.Chance.Label())
+	}
+}
+
 func TestAnalyze_NonCompetitorsExcluded(t *testing.T) {
 	prog := progWithVolume(10, 0, 0)
 	abits := []Abiturient{

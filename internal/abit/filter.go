@@ -22,6 +22,36 @@ func IsCompetitorWith(ab Abiturient, userScore float64, overrides OverrideMap) b
 	return IsCompetitor(ab, userScore)
 }
 
+// droppedStatuses are substrings whose presence means the applicant is out
+// of the race entirely (withdrew, was deactivated, expelled, refused).
+var droppedStatuses = []string{"деактивовано", "скасовано", "відмова", "відраховано"}
+
+// IsBudgetContender reports whether ab is still alive and on the budget
+// track, IGNORING score: a state-funded applicant whose status isn't one of
+// the "dropped" ones. Use this when an applicant consumes a seat based on
+// their standing WITHIN a quota (or on a committed status) rather than
+// against the user — where the score comparison in IsCompetitor would
+// wrongly exclude a genuine, lower-scored quota holder.
+func IsBudgetContender(ab Abiturient) bool {
+	if !ab.StateEducation {
+		return false
+	}
+	low := strings.ToLower(ab.Status)
+	for _, drop := range droppedStatuses {
+		if strings.Contains(low, drop) {
+			return false
+		}
+	}
+	return true
+}
+
+// IsEnrolledStatus reports whether the status means the applicant already
+// holds a budget seat ("до наказу" / "рекомендовано").
+func IsEnrolledStatus(status string) bool {
+	low := strings.ToLower(status)
+	return strings.Contains(low, "до наказу") || strings.Contains(low, "рекомендовано")
+}
+
 // IsCompetitor reports whether ab realistically competes with someone
 // at userScore for a budget seat. Encodes the heuristic shared by the
 // Python AbitAssistant filter_data and the bot's list view:
@@ -38,16 +68,10 @@ func IsCompetitorWith(ab Abiturient, userScore float64, overrides OverrideMap) b
 // userScore ≤ 0 (profile not filled) keeps everybody alive past the
 // score check, so the caller usually skips IsCompetitor in that case.
 func IsCompetitor(ab Abiturient, userScore float64) bool {
-	if !ab.StateEducation {
+	if !IsBudgetContender(ab) {
 		return false
 	}
-	low := strings.ToLower(ab.Status)
-	for _, drop := range []string{"деактивовано", "скасовано", "відмова", "відраховано"} {
-		if strings.Contains(low, drop) {
-			return false
-		}
-	}
-	if strings.Contains(low, "до наказу") || strings.Contains(low, "рекомендовано") {
+	if IsEnrolledStatus(ab.Status) {
 		return true
 	}
 	return ab.Score >= userScore
