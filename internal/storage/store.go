@@ -191,6 +191,14 @@ func (s *Store) UpsertUser(ctx context.Context, tgID int64) error {
 	return s.Queries.UpsertUser(ctx, tgID)
 }
 
+// AddActivates adds delta to the user's activates counter in one write,
+// creating the row if missing. Callers buffer the per-update +1s in memory
+// and flush them here in batches so the single SQLite connection isn't hit
+// on every update (see bot.activateTracker).
+func (s *Store) AddActivates(ctx context.Context, tgID, delta int64) error {
+	return s.Queries.AddActivates(ctx, db.AddActivatesParams{TgID: tgID, Activates: delta})
+}
+
 // GetUserSettings returns the typed settings; the zero value is returned
 // for a non-existent user (no error).
 func (s *Store) GetUserSettings(ctx context.Context, tgID int64) (UserSettings, error) {

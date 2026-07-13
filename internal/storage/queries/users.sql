@@ -20,6 +20,16 @@ ON CONFLICT(tg_id) DO UPDATE SET
     activates = activates + 1,
     updated_at = unixepoch();
 
+-- name: AddActivates :exec
+-- Adds a batched delta accumulated in memory (the hot path buffers the
+-- per-update +1s and a periodic flush applies them in one write, so the
+-- single SQLite connection isn't hit on every update).
+INSERT INTO users (tg_id, activates, updated_at)
+VALUES (?1, ?2, unixepoch())
+ON CONFLICT(tg_id) DO UPDATE SET
+    activates = activates + excluded.activates,
+    updated_at = unixepoch();
+
 -- name: IncrementRightActivates :exec
 INSERT INTO users (tg_id, right_activates, updated_at)
 VALUES (?1, 1, unixepoch())

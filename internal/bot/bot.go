@@ -28,6 +28,7 @@ type Bot struct {
 	enrichSvc    *service.EnrichService
 	discoverSvc  *service.DiscoverService
 	simSvc       *service.PrioritySimulator
+	activates    *activateTracker
 	log          *slog.Logger
 	// rootCtx is set by Run; long-running goroutines (broadcast) derive
 	// their context from it so SIGTERM stops them gracefully.
@@ -81,6 +82,7 @@ func New(deps Deps) (*Bot, error) {
 		simSvc:       deps.Simulate,
 		log:          log.With("component", "bot"),
 	}
+	b.activates = newActivateTracker(deps.Store, b.log, 30*time.Second)
 	b.registerRoutes()
 	return b, nil
 }
@@ -97,6 +99,9 @@ func (b *Bot) Run(ctx context.Context) error {
 		b.log.Info("starting telegram poller")
 		b.tg.Start()
 	}()
+	// Flush buffered activation counters off the hot path; run() performs a
+	// final flush when ctx is cancelled.
+	go b.activates.run(ctx)
 	<-ctx.Done()
 	b.log.Info("shutdown requested")
 	b.tg.Stop()

@@ -9,6 +9,27 @@ import (
 	"context"
 )
 
+const addActivates = `-- name: AddActivates :exec
+INSERT INTO users (tg_id, activates, updated_at)
+VALUES (?1, ?2, unixepoch())
+ON CONFLICT(tg_id) DO UPDATE SET
+    activates = activates + excluded.activates,
+    updated_at = unixepoch()
+`
+
+type AddActivatesParams struct {
+	TgID      int64
+	Activates int64
+}
+
+// Adds a batched delta accumulated in memory (the hot path buffers the
+// per-update +1s and a periodic flush applies them in one write, so the
+// single SQLite connection isn't hit on every update).
+func (q *Queries) AddActivates(ctx context.Context, arg AddActivatesParams) error {
+	_, err := q.db.ExecContext(ctx, addActivates, arg.TgID, arg.Activates)
+	return err
+}
+
 const countUsers = `-- name: CountUsers :one
 SELECT COUNT(*) FROM users
 `

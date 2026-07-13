@@ -111,10 +111,14 @@ func looksLikeInternal(s string) bool {
 }
 
 // trackUser is middleware that ensures the user row exists and bumps the
-// activates counter. Failure here is fatal to the request because every
-// downstream FSM / saved-lists write has a foreign-key reference to
-// users(tg_id) — letting the request continue past a failed Upsert
-// guarantees an obscure FK error a few stack-frames deeper.
+// activates counter. The counter bump is buffered in memory and flushed in
+// batches (see activateTracker) so it never touches the DB on the hot path.
+//
+// The FIRST time a user is seen this process we still ensure their row exists
+// synchronously — every downstream FSM / saved-lists write has a foreign-key
+// reference to users(tg_id), so letting the request continue past a failed
+// insert would surface an obscure FK error a few stack-frames deeper. That
+// write happens once per user per process, not once per update.
 func (b *Bot) trackUser(next tele.HandlerFunc) tele.HandlerFunc {
 	return func(c tele.Context) error {
 		uid := senderID(c)
@@ -123,7 +127,7 @@ func (b *Bot) trackUser(next tele.HandlerFunc) tele.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := b.store.Queries.IncrementActivates(ctx, uid); err != nil {
+		if err := b.activates.track(ctx, uid); err != nil {
 			b.log.Warn("user track failed", "err", err, "user_id", uid)
 			return fmt.Errorf("сервер тимчасово зайнятий — спробуй ще раз: %w", err)
 		}
