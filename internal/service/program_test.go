@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -134,9 +135,15 @@ func TestProgramService_Refresh_CancelDoesNotPoisonOthers(t *testing.T) {
 	store := newStore(t)
 	release := make(chan struct{})
 	entered := make(chan struct{})
+	// close(entered) must be idempotent: if caller B's goroutine is
+	// scheduled late (after A's flight already completed and left the
+	// singleflight map), B legitimately starts a second, identical parse.
+	// A plain close() would then panic ("close of closed channel"). The
+	// once keeps the handshake correct in every interleaving.
+	var enteredOnce sync.Once
 	fixture := newFixtureProgram()
 	src := &fakeSource{parse: func(ctx context.Context, _ string) (*abit.Program, error) {
-		close(entered)
+		enteredOnce.Do(func() { close(entered) })
 		<-release // hold the single in-flight parse until both callers wait
 		return fixture, nil
 	}}
