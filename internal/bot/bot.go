@@ -25,7 +25,6 @@ type Bot struct {
 	fsm          *fsm.Manager
 	programSvc   *service.ProgramService
 	applicantSvc *service.ApplicantService
-	enrichSvc    *service.EnrichService
 	discoverSvc  *service.DiscoverService
 	simSvc       *service.PrioritySimulator
 	activates    *activateTracker
@@ -42,7 +41,6 @@ type Deps struct {
 	Store      *storage.Store
 	Program    *service.ProgramService
 	Applicant  *service.ApplicantService
-	Enrich     *service.EnrichService
 	Discover   *service.DiscoverService
 	Simulate   *service.PrioritySimulator
 	Logger     *slog.Logger
@@ -77,7 +75,6 @@ func New(deps Deps) (*Bot, error) {
 		fsm:          fsm.New(deps.Store),
 		programSvc:   deps.Program,
 		applicantSvc: deps.Applicant,
-		enrichSvc:    deps.Enrich,
 		discoverSvc:  deps.Discover,
 		simSvc:       deps.Simulate,
 		log:          log.With("component", "bot"),

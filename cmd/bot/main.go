@@ -30,7 +30,6 @@ import (
 const (
 	programCacheTTL   = 10 * time.Minute
 	applicantCacheTTL = 24 * time.Hour
-	enrichWorkers     = 4
 	discoverWorkers   = 6
 	simWorkers        = 4
 	simMaxLookups     = 40
@@ -105,7 +104,6 @@ func run() error {
 	abitpoiskSrc := abitpoisk.New(abitpoisk.WithInsecureTLS())
 	programSvc := service.NewProgramService(osvitaSrc, store, programCacheTTL)
 	applicantSvc := service.NewApplicantService(abitpoiskSrc, store, applicantCacheTTL)
-	enrichSvc := service.NewEnrichService(applicantSvc, enrichWorkers)
 	// osvitaSrc doubles as the program browser (it implements both
 	// parser.Source and service.ProgramBrowser).
 	discoverSvc := service.NewDiscoverService(osvitaSrc, programSvc, discoverWorkers)
@@ -120,7 +118,6 @@ func run() error {
 		Store:     store,
 		Program:   programSvc,
 		Applicant: applicantSvc,
-		Enrich:    enrichSvc,
 		Discover:  discoverSvc,
 		Simulate:  simSvc,
 		Logger:    log,
