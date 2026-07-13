@@ -269,3 +269,40 @@ func TestVacuumCaches(t *testing.T) {
 		t.Errorf("expected ErrCacheMiss after vacuum, got %v", err)
 	}
 }
+
+func TestRunVacuum_ImmediateSweepThenStops(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	if err := s.PutApplicantCache(ctx, "name1", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		// Negative TTLs make the immediate sweep drop everything.
+		s.RunVacuum(runCtx, time.Hour, -time.Second, -time.Second, nil)
+		close(done)
+	}()
+
+	// The immediate sweep should evict the row shortly after start.
+	evicted := false
+	for i := 0; i < 100; i++ {
+		if _, err := s.GetApplicantCache(ctx, "name1", time.Hour); errors.Is(err, storage.ErrCacheMiss) {
+			evicted = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !evicted {
+		t.Error("expected the immediate sweep to evict the row")
+	}
+
+	// Cancellation stops the loop.
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunVacuum did not return after ctx cancel")
+	}
+}

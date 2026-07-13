@@ -34,6 +34,7 @@ const (
 	discoverWorkers   = 6
 	simWorkers        = 4
 	simMaxLookups     = 40
+	vacuumInterval    = time.Hour
 )
 
 func main() {
@@ -70,6 +71,10 @@ func run() error {
 			log.Warn("storage close", "err", cerr)
 		}
 	}()
+
+	// Physically evict stale cache rows on a schedule so third-party
+	// applicant names don't accumulate forever (TTL alone only gates reads).
+	go store.RunVacuum(rootCtx, vacuumInterval, programCacheTTL, applicantCacheTTL, log)
 
 	osvitaSrc := osvita.New()
 	abitpoiskSrc := abitpoisk.New(abitpoisk.WithInsecureTLS())

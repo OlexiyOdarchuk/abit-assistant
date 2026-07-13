@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -464,6 +465,35 @@ func (s *Store) VacuumCaches(ctx context.Context, programTTL, applicantTTL time.
 		return err
 	}
 	return s.Queries.VacuumApplicantCache(ctx, now-int64(applicantTTL.Seconds()))
+}
+
+// RunVacuum periodically evicts stale cache rows until ctx is cancelled.
+// Without it the TTLs only gate reads — rows are never physically deleted,
+// so third-party applicant names (applicant_cache) accumulate in the DB
+// indefinitely. Runs one sweep immediately, then every interval. Errors are
+// logged and the loop continues. Intended to be started in its own goroutine.
+func (s *Store) RunVacuum(ctx context.Context, interval, programTTL, applicantTTL time.Duration, log *slog.Logger) {
+	if interval <= 0 {
+		interval = time.Hour
+	}
+	sweep := func() {
+		if err := s.VacuumCaches(ctx, programTTL, applicantTTL); err != nil {
+			if log != nil {
+				log.WarnContext(ctx, "cache vacuum failed", "err", err)
+			}
+		}
+	}
+	sweep()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sweep()
+		}
+	}
 }
 
 func decodeProgram(raw string) (*abit.Program, error) {
