@@ -26,6 +26,48 @@ func newStore(t *testing.T) *storage.Store {
 	return s
 }
 
+func TestOpen_SeparateReadPool(t *testing.T) {
+	s := newStore(t)
+	if s.ReadQueries == s.Queries {
+		t.Fatal("file-backed Store should have a distinct read pool")
+	}
+}
+
+// TestReadPool_ConcurrentReadsAndReadAfterWrite exercises the two-pool path:
+// a write on the writer pool must be visible to the reader pool (WAL
+// read-after-write), and many concurrent reads must all succeed.
+func TestReadPool_ConcurrentReadsAndReadAfterWrite(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	if err := s.SetUserNMT(ctx, 1, storage.UserNMT{"Математика": 180}); err != nil {
+		t.Fatal(err)
+	}
+
+	const readers = 32
+	var wg sync.WaitGroup
+	errs := make(chan error, readers)
+	for range readers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			nmt, err := s.GetUserNMT(ctx, 1)
+			if err != nil {
+				errs <- err
+				return
+			}
+			if nmt["Математика"] != 180 {
+				errs <- errors.New("write not visible to read pool")
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent read: %v", err)
+	}
+}
+
 func TestOpen_AppliesMigrations(t *testing.T) {
 	s := newStore(t)
 

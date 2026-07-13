@@ -42,12 +42,23 @@ var (
 	ErrNotFound = errors.New("storage: not found")
 )
 
-// Store is the high-level persistence facade. It owns the *sql.DB and a
-// pre-built *db.Queries; tests can also call Store.DB / Store.Queries
-// directly when they need raw access.
+// readPoolSize is how many concurrent read connections the read pool keeps.
+// WAL lets any number of readers proceed while the single writer holds its
+// lock, so reads no longer queue behind each other or behind a write.
+const readPoolSize = 4
+
+// Store is the high-level persistence facade. It owns two connection pools —
+// a single-connection writer and a multi-connection reader (WAL allows one
+// writer + N readers concurrently) — and the sqlc query objects bound to
+// each. Writes and the infrequent admin reads go through Queries; hot-path
+// reads go through ReadQueries.
+//
+// DB is the write pool (kept for tests / migrations / raw access).
 type Store struct {
-	DB      *sql.DB
-	Queries *db.Queries
+	DB          *sql.DB
+	readDB      *sql.DB
+	Queries     *db.Queries // bound to the write pool
+	ReadQueries *db.Queries // bound to the read pool
 }
 
 // Open opens (or creates) a SQLite database at path, applies pending
@@ -58,25 +69,61 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	sqlDB, err := sql.Open("sqlite", dsn)
+	writeDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("storage: open: %w", err)
 	}
-	// SQLite is single-writer; reduce connection churn.
-	sqlDB.SetMaxOpenConns(1)
-	if err := sqlDB.PingContext(ctx); err != nil {
-		_ = sqlDB.Close()
+	// SQLite has a single writer; pinning to one connection serializes
+	// writes deterministically (no writer-writer SQLITE_BUSY at all).
+	writeDB.SetMaxOpenConns(1)
+	if err := writeDB.PingContext(ctx); err != nil {
+		_ = writeDB.Close()
 		return nil, fmt.Errorf("storage: ping: %w", err)
 	}
-	if err := applyMigrations(ctx, sqlDB); err != nil {
-		_ = sqlDB.Close()
+	// Migrations must run before the read pool starts serving.
+	if err := applyMigrations(ctx, writeDB); err != nil {
+		_ = writeDB.Close()
 		return nil, err
 	}
-	return &Store{DB: sqlDB, Queries: db.New(sqlDB)}, nil
+
+	s := &Store{DB: writeDB, Queries: db.New(writeDB)}
+
+	// A separate read pool only pays off for file-backed DBs. An in-memory
+	// DB (tests) can't be reliably shared across independent pools, so reads
+	// and writes share the one handle there.
+	if path == ":memory:" {
+		s.readDB = writeDB
+		s.ReadQueries = s.Queries
+		return s, nil
+	}
+
+	readDB, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		_ = writeDB.Close()
+		return nil, fmt.Errorf("storage: open read pool: %w", err)
+	}
+	readDB.SetMaxOpenConns(readPoolSize)
+	if err := readDB.PingContext(ctx); err != nil {
+		_ = readDB.Close()
+		_ = writeDB.Close()
+		return nil, fmt.Errorf("storage: ping read pool: %w", err)
+	}
+	s.readDB = readDB
+	s.ReadQueries = db.New(readDB)
+	return s, nil
 }
 
-// Close releases the underlying database handle.
-func (s *Store) Close() error { return s.DB.Close() }
+// Close releases both database handles.
+func (s *Store) Close() error {
+	var rerr error
+	if s.readDB != nil && s.readDB != s.DB {
+		rerr = s.readDB.Close()
+	}
+	if err := s.DB.Close(); err != nil {
+		return err
+	}
+	return rerr
+}
 
 func buildDSN(path string) (string, error) {
 	// busy_timeout makes SQLite block briefly on contended writes
@@ -203,7 +250,7 @@ func (s *Store) AddActivates(ctx context.Context, tgID, delta int64) error {
 // GetUserSettings returns the typed settings; the zero value is returned
 // for a non-existent user (no error).
 func (s *Store) GetUserSettings(ctx context.Context, tgID int64) (UserSettings, error) {
-	raw, err := s.Queries.GetUserSettings(ctx, tgID)
+	raw, err := s.ReadQueries.GetUserSettings(ctx, tgID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return UserSettings{}, nil
 	}
@@ -233,7 +280,7 @@ func (s *Store) SetUserSettings(ctx context.Context, tgID int64, settings UserSe
 
 // GetUserNMT returns the stored NMT scores; nil for an unknown user.
 func (s *Store) GetUserNMT(ctx context.Context, tgID int64) (UserNMT, error) {
-	raw, err := s.Queries.GetUserNMT(ctx, tgID)
+	raw, err := s.ReadQueries.GetUserNMT(ctx, tgID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -304,7 +351,7 @@ func (s *Store) GetSavedListByToken(ctx context.Context, token string) (*SavedLi
 	if token == "" {
 		return nil, ErrNotFound
 	}
-	r, err := s.Queries.GetSavedListByToken(ctx, token)
+	r, err := s.ReadQueries.GetSavedListByToken(ctx, token)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -337,7 +384,7 @@ func newShareToken() (string, error) {
 
 // ListSavedLists returns every saved list for tgID, newest first.
 func (s *Store) ListSavedLists(ctx context.Context, tgID int64) ([]SavedList, error) {
-	rows, err := s.Queries.ListSavedLists(ctx, tgID)
+	rows, err := s.ReadQueries.ListSavedLists(ctx, tgID)
 	if err != nil {
 		return nil, err
 	}
@@ -360,7 +407,7 @@ func (s *Store) ListSavedLists(ctx context.Context, tgID int64) ([]SavedList, er
 
 // GetSavedList loads a single saved list by ID.
 func (s *Store) GetSavedList(ctx context.Context, id int64) (*SavedList, error) {
-	r, err := s.Queries.GetSavedList(ctx, id)
+	r, err := s.ReadQueries.GetSavedList(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -408,7 +455,7 @@ func (s *Store) UpdateSavedListProgram(ctx context.Context, id int64, prog *abit
 // GetProgramCache returns a cached Program if it exists and isn't older
 // than ttl. Returns ErrCacheMiss / ErrCacheStale to let callers distinguish.
 func (s *Store) GetProgramCache(ctx context.Context, url string, ttl time.Duration) (*abit.Program, error) {
-	row, err := s.Queries.GetProgramCache(ctx, url)
+	row, err := s.ReadQueries.GetProgramCache(ctx, url)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrCacheMiss
 	}
@@ -432,7 +479,7 @@ func (s *Store) PutProgramCache(ctx context.Context, url string, prog *abit.Prog
 
 // GetApplicantCache returns cached abit-poisk entries for a person.
 func (s *Store) GetApplicantCache(ctx context.Context, name string, ttl time.Duration) ([]abit.ApplicantEntry, error) {
-	row, err := s.Queries.GetApplicantCache(ctx, name)
+	row, err := s.ReadQueries.GetApplicantCache(ctx, name)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrCacheMiss
 	}

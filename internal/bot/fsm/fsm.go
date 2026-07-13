@@ -52,7 +52,7 @@ func New(store *storage.Store) *Manager { return &Manager{store: store} }
 // Get returns the active state, or an empty (Name == "") state when no
 // conversation exists.
 func (m *Manager) Get(ctx context.Context, tgID int64) (State, error) {
-	row, err := m.store.Queries.GetFSM(ctx, tgID)
+	row, err := m.store.ReadQueries.GetFSM(ctx, tgID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return State{}, nil
 	}
