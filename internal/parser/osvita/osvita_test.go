@@ -34,6 +34,26 @@ func TestParseProgramURL(t *testing.T) {
 			in:      "https://vstup.osvita.ua/2025/r14/282/1471029/",
 			wantErr: true,
 		},
+		{
+			name:    "foreign host with valid path (SSRF)",
+			in:      "http://169.254.169.254/y2025/r14/282/1471029/",
+			wantErr: true,
+		},
+		{
+			name:    "internal host over http (SSRF)",
+			in:      "http://localhost:8080/y2025/r14/282/1471029/",
+			wantErr: true,
+		},
+		{
+			name:    "right host but http scheme",
+			in:      "http://vstup.osvita.ua/y2025/r14/282/1471029/",
+			wantErr: true,
+		},
+		{
+			name:    "lookalike subdomain",
+			in:      "https://vstup.osvita.ua.evil.com/y2025/r14/282/1471029/",
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

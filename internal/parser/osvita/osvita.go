@@ -31,6 +31,7 @@ import (
 
 const (
 	sourceID        = "osvita"
+	programHost     = "vstup.osvita.ua"
 	defaultAPIURL   = "https://vstup.osvita.ua/api/"
 	defaultPageSize = 500
 	defaultWorkers  = 8
@@ -118,6 +119,13 @@ func parseProgramURL(rawURL string) (sid, uid, year string, err error) {
 	u, perr := url.Parse(rawURL)
 	if perr != nil {
 		return "", "", "", fmt.Errorf("%w: %v", abit.ErrInvalidURL, perr)
+	}
+	// Pin scheme+host. The URL comes straight from a request body
+	// (/api/analyze, /api/simulate) and is later handed to http.Get; without
+	// this the path regex alone would let an attacker point us at an internal
+	// host (SSRF) as long as the path ends in /yYYYY/rNN/uid/sid/.
+	if u.Scheme != "https" || !strings.EqualFold(u.Host, programHost) {
+		return "", "", "", fmt.Errorf("%w: only https://%s URLs are accepted", abit.ErrInvalidURL, programHost)
 	}
 	m := programURLRe.FindStringSubmatch(u.Path)
 	if len(m) != 4 {
