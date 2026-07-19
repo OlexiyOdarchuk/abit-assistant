@@ -61,9 +61,16 @@ func run() error {
 	log := newLogger(cfg.LogLevel)
 	slog.SetDefault(log)
 
+	// Listen address, all from RUNTIME env (nothing is baked in at build):
+	//   HTTP_ADDR (e.g. ":8080" or "0.0.0.0:8080") wins; otherwise many PaaS
+	//   inject a bare PORT number → ":PORT"; otherwise default ":8080".
 	addr := os.Getenv("HTTP_ADDR")
 	if addr == "" {
-		addr = ":8080"
+		if port := os.Getenv("PORT"); port != "" {
+			addr = ":" + port
+		} else {
+			addr = ":8080"
+		}
 	}
 
 	rootCtx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

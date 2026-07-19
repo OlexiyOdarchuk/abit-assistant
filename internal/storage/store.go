@@ -64,7 +64,7 @@ const (
 // pending migrations, and returns a ready-to-use Store.
 func Open(ctx context.Context, dsn string) (*Store, error) {
 	if strings.TrimSpace(dsn) == "" {
-		return nil, errors.New("storage: empty DATABASE_URL")
+		return nil, errors.New("storage: DATABASE_URL is not set — provide a PostgreSQL connection URL, e.g. postgres://user:pass@host:5432/db?sslmode=require")
 	}
 	sqlDB, err := sql.Open("pgx", dsn)
 	if err != nil {

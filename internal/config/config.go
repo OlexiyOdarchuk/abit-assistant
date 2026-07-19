@@ -27,16 +27,17 @@ type Config struct {
 	LogLevel string
 }
 
-// defaultDatabaseURL is the local-development connection (docker-compose
-// brings up this Postgres). Production overrides it via DATABASE_URL.
-const defaultDatabaseURL = "postgres://abit:abit@localhost:5432/abit?sslmode=disable"
-
 // Load reads configuration from process environment with sensible defaults.
 // It never fails; call Validate before using the bot entrypoint.
+//
+// DatabaseURL has NO default on purpose: a silent localhost fallback made a
+// container deploy connect to 127.0.0.1 and crash with a confusing
+// "connection refused" instead of an obvious "DATABASE_URL is not set". Set it
+// explicitly (docker-compose does; managed hosts hand out the URL).
 func Load() (*Config, error) {
 	c := &Config{
 		TelegramToken: os.Getenv("TELEGRAM_TOKEN"),
-		DatabaseURL:   envOr("DATABASE_URL", defaultDatabaseURL),
+		DatabaseURL:   os.Getenv("DATABASE_URL"),
 		LogLevel:      envOr("LOG_LEVEL", "info"),
 	}
 	ids, err := parseInt64List(os.Getenv("ADMIN_IDS"))

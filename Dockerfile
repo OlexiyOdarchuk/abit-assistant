@@ -46,11 +46,13 @@ COPY --from=build /out/app /app
 # Non-root UID — scratch has no /etc/passwd, but the numeric id drops root.
 USER 65532:65532
 
-# Web listens here; the platform routes the domain in. The bot uses
-# long-polling (no inbound port).
-ENV HTTP_ADDR=:8080
+# The web binds to $HTTP_ADDR, else :$PORT (many PaaS inject PORT), else
+# :8080. We do NOT bake HTTP_ADDR here so a runtime-injected PORT can win.
 EXPOSE 8080
 
-# Required env: DATABASE_URL (postgres://…), TELEGRAM_TOKEN.
-# Optional: ADMIN_IDS, LOG_LEVEL. Without TELEGRAM_TOKEN only the web runs.
+# ALL config is read from RUNTIME env (nothing baked in but the version label):
+#   DATABASE_URL   — required, postgres:// connection URL
+#   TELEGRAM_TOKEN — enables the bot; without it only the web runs
+#   HTTP_ADDR / PORT — web listen address (default :8080)
+#   ADMIN_IDS, LOG_LEVEL — optional
 ENTRYPOINT ["/app"]
