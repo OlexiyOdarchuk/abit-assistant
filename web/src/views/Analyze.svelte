@@ -180,6 +180,9 @@
 
         <Histogram scores={result.applicants.map((a) => a.score)} userScore={result.userScore} />
         <ChanceLegend />
+        {#if result.program?.sourceAsOf}
+          <p class="asof">🕒 Дані osvita станом на {result.program.sourceAsOf}</p>
+        {/if}
       {:else}
         <p class="hint">Заповни профіль, щоб порахувати шанси. Нижче — повний список заяв.</p>
       {/if}
@@ -251,6 +254,7 @@
   .breakdown .ground dd { color: var(--accent-ink); }
   .advice { margin-top: 0.9rem; padding: 0.7rem 0.9rem; background: var(--accent-soft); color: var(--accent-ink); border-radius: 12px; }
   .warn { margin-top: 0.6rem; padding: 0.7rem 0.9rem; background: color-mix(in srgb, #e6a817 18%, transparent); color: var(--ink); border-radius: 12px; font-size: 0.92rem; line-height: 1.4; }
+  .asof { margin-top: 0.7rem; text-align: center; color: var(--muted); font-size: 0.82rem; }
   .actions { display: flex; gap: 0.6rem; margin-top: 1rem; flex-wrap: wrap; align-items: center; }
   .btn-link { align-self: center; font-size: 0.9rem; }
   .sim { margin-top: 1rem; padding: 0.9rem; background: var(--hover); border-radius: 12px; }

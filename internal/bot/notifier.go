@@ -10,10 +10,11 @@ import (
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 )
 
-// notifyInterval is how often the change-notifier re-checks saved lists. A few
-// hours keeps users current during a live campaign (program cache TTL is far
-// shorter, so each sweep sees fresh data) without spamming.
-const notifyInterval = 6 * time.Hour
+// notifyInterval is how often the change-notifier re-checks saved lists.
+// osvita re-syncs from EDBO a few times a day (it stamps each page "Дані
+// отримані з ЄДЕБО HH:MM"); a 3h sweep catches every refresh within a few
+// hours, and the SourceAsOf guard makes sweeps that hit unchanged data cheap.
+const notifyInterval = 3 * time.Hour
 
 // runChangeNotifier periodically re-analyses every user's saved lists and DMs
 // them when a program's admission chance changes (e.g. 🟢 High → 🟡 Medium).
@@ -98,10 +99,23 @@ func (b *Bot) notifyUserChanges(ctx context.Context, uid int64) int {
 			b.log.WarnContext(ctx, "notifier: fetch", "err", err, "url", l.URL)
 			continue
 		}
+		// Skip when osvita hasn't re-synced from EDBO since the snapshot:
+		// same "data as of" stamp ⇒ the field can't have changed, so there's
+		// nothing to recompute or announce.
+		if fresh.SourceAsOf != "" && l.Program.SourceAsOf != "" &&
+			fresh.SourceAsOf == l.Program.SourceAsOf {
+			continue
+		}
 		in.UserScore = abit.ComputeRating(fresh, rating)
 		newA := abit.Analyze(fresh, abit.Decode(fresh), in)
 
 		if !chanceChanged(oldChance, newA.Chance) {
+			// No verdict change, but the snapshot advanced — refresh it so the
+			// next sweep compares against current data (and doesn't re-fetch
+			// the same delta forever).
+			if err := b.store.UpdateSavedListProgram(ctx, l.ID, fresh); err != nil {
+				b.log.WarnContext(ctx, "notifier: refresh snapshot", "err", err, "list_id", l.ID)
+			}
 			continue
 		}
 		if _, err := b.tg.Send(&tele.User{ID: uid},
@@ -153,6 +167,9 @@ func buildChanceChangeMessage(name string, prog *abit.Program, old abit.ChanceLe
 		old.Emoji(), old.Label(), newA.Chance.Emoji(), newA.Chance.Label())
 	if newA.Advice != "" {
 		msg += fmt.Sprintf("\n💡 %s\n", mdEscape(newA.Advice))
+	}
+	if prog != nil && prog.SourceAsOf != "" {
+		msg += fmt.Sprintf("\n_Дані osvita станом на %s._", mdEscape(prog.SourceAsOf))
 	}
 	msg += "\nДеталі — у /lists."
 	return msg

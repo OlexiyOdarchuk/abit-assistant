@@ -53,6 +53,12 @@ type Program struct {
 	// Subjects is the program's subject rubric (name, weights, IDs).
 	Subjects []SubjectMeta `json:"subjects,omitempty"`
 
+	// SourceAsOf is osvita's own "data as of" stamp for the EDBO sync that
+	// produced this page, e.g. "19.07.2026 12:00" (from "Дані отримані з
+	// ЄДЕБО …"). Empty when not present. Used to show data freshness and to
+	// fire change-notifications right after a real refresh.
+	SourceAsOf string `json:"source_as_of,omitempty"`
+
 	ProgramInfo     map[string]string            `json:"program_info,omitempty"`
 	Volume          map[string]string            `json:"volume,omitempty"`
 	Statuses        map[string]string            `json:"statuses,omitempty"`

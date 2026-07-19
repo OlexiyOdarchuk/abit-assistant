@@ -777,6 +777,9 @@ func buildSummaryView(prog *abit.Program, an abit.Analysis, backToDiscover bool)
 				sb.WriteString("\nℹ️ Заяв поки менше, ніж бюджетних місць — тож майже всі проходять. Якщо кампанія щойно почалась, більшість заяв подадуть в останні дні й прохідний бал ще зросте.")
 			}
 		}
+		if prog.SourceAsOf != "" {
+			fmt.Fprintf(&sb, "\n\n🕒 _Дані osvita станом на %s._", mdEscape(prog.SourceAsOf))
+		}
 	}
 
 	kb := &tele.ReplyMarkup{}

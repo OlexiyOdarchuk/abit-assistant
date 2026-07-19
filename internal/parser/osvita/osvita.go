@@ -383,6 +383,9 @@ func (p *Parser) retry(ctx context.Context, fn func() error) error {
 var (
 	reSpec = regexp.MustCompile(`Спеціальність:\s*(\S+)`)
 	reProg = regexp.MustCompile(`Освітня програма:\s*(.+?)\.`)
+	// osvita stamps every page with its EDBO-sync time, e.g.
+	// "Дані отримані з ЄДЕБО 19.07.2026 12:00 (наступне оновлення …)".
+	reSourceAsOf = regexp.MustCompile(`Дані отримані з ЄДЕБО\s*(\d{2}\.\d{2}\.\d{4}\s+\d{1,2}:\d{2})`)
 )
 
 func (p *Parser) fetchStatic(ctx context.Context, programURL string) (*abit.Program, error) {
@@ -448,6 +451,10 @@ func (p *Parser) fetchStatic(ctx context.Context, programURL string) (*abit.Prog
 	// substring, so it picks up "Максимальний обсяг…" as the budget
 	// figure regardless of any unrelated stats also present in the table.
 	collectVolume(doc, prog.Volume)
+
+	if m := reSourceAsOf.FindStringSubmatch(doc.Text()); len(m) > 1 {
+		prog.SourceAsOf = strings.Join(strings.Fields(m[1]), " ")
+	}
 
 	var js strings.Builder
 	doc.Find("script").Each(func(_ int, s *goquery.Selection) {

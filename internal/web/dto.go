@@ -49,12 +49,14 @@ type programMeta struct {
 	Budget     int    `json:"budget"`
 	Quota1     int    `json:"quota1"`
 	Quota2     int    `json:"quota2"`
+	SourceAsOf string `json:"sourceAsOf,omitempty"`
 }
 
 func metaOf(prog *abit.Program, url string) programMeta {
 	return programMeta{
 		University: prog.UniversityName, Program: prog.ProgramName, SpecCode: prog.SpecCode,
 		URL: url, Budget: prog.BudgetVolume(), Quota1: prog.Quota1Volume(), Quota2: prog.Quota2Volume(),
+		SourceAsOf: prog.SourceAsOf,
 	}
 }
 
