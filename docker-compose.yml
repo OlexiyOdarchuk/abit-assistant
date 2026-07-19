@@ -1,10 +1,10 @@
-# Local development stack: Postgres + bot + web.
+# Local development stack: Postgres + the combined app (bot + web).
 #   docker compose up -d          — run everything
-#   docker compose logs -f bot    — follow a service
+#   docker compose logs -f app    — follow the app
 #   TEST_DATABASE_URL=postgres://abit:abit@localhost:5432/abit?sslmode=disable go test ./...
 #
-# Production is deployed elsewhere as two Dockerfiles (Dockerfile,
-# Dockerfile.web) against a managed Postgres — this compose is only for dev.
+# Production deploys the single Dockerfile (cmd/app = bot + web) against a
+# managed Postgres — this compose is only for local dev.
 
 services:
   postgres:
@@ -25,40 +25,17 @@ services:
       timeout: 3s
       retries: 10
 
-  bot:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
       args:
         VERSION: "3.0-compose"
-    image: abit-assistant-bot:local
-    container_name: abit-bot
+    image: abit-assistant:local
+    container_name: abit-app
     restart: unless-stopped
     env_file:
       - .env # TELEGRAM_TOKEN, ADMIN_IDS
-    environment:
-      DATABASE_URL: postgres://abit:abit@postgres:5432/abit?sslmode=disable
-    depends_on:
-      postgres:
-        condition: service_healthy
-    read_only: true
-    cap_drop: [ALL]
-    security_opt:
-      - no-new-privileges:true
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-
-  web:
-    build:
-      context: .
-      dockerfile: Dockerfile.web
-      args:
-        VERSION: "3.0-compose"
-    image: abit-assistant-web:local
-    container_name: abit-web
-    restart: unless-stopped
     environment:
       DATABASE_URL: postgres://abit:abit@postgres:5432/abit?sslmode=disable
       HTTP_ADDR: ":8080"
@@ -74,4 +51,4 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 384M
