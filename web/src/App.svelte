@@ -48,14 +48,14 @@
 {#if !ui.onboarded}
   <!-- mandatory profile gate: nothing else until the profile is filled -->
   <header class="topbar minimal">
-    <span class="brand"><span class="mark">◆</span> AbitAssistant</span>
+    <span class="brand"><span class="mark">🎓</span> AbitAssistant</span>
     <button class="theme" onclick={toggleTheme} aria-label="Тема">{dark ? '☀' : '☾'}</button>
   </header>
   <Onboarding />
 {:else}
   <div class="app">
     <header class="topbar">
-      <a class="brand" href="#/home"><span class="mark">◆</span> AbitAssistant</a>
+      <a class="brand" href="#/home"><span class="mark">🎓</span> AbitAssistant</a>
       <nav>
         {#each nav as n}
           <a href="#/{n.id}" class:active={route.name === n.id}>{n.label}</a>
