@@ -137,3 +137,26 @@ func TestFilter_Apply_DoesNotMutateInput(t *testing.T) {
 		}
 	}
 }
+
+func TestCompetitorTier(t *testing.T) {
+	mk := func(score float64, prio int, status string) Abiturient {
+		return Abiturient{Score: score, Priority: prio, Status: status, StateEducation: true}
+	}
+	cases := []struct {
+		name string
+		ab   Abiturient
+		want int
+	}{
+		{"below user", mk(160, 1, "Допущено"), CompetitorNone},
+		{"above, priority 1", mk(181, 1, "Допущено"), CompetitorReal},
+		{"above, priority 7", mk(181, 7, "Допущено"), CompetitorPotential},
+		{"above, priority 0 (unknown) → conservative", mk(181, 0, "Допущено"), CompetitorReal},
+		{"enrolled here (any priority)", mk(181, 5, "До наказу (бюджет)"), CompetitorReal},
+		{"contract", Abiturient{Score: 190, Priority: 1, StateEducation: false}, CompetitorNone},
+	}
+	for _, c := range cases {
+		if got := CompetitorTier(c.ab, 175); got != c.want {
+			t.Errorf("%s: CompetitorTier = %d, want %d", c.name, got, c.want)
+		}
+	}
+}

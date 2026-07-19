@@ -67,6 +67,41 @@ func IsCompetitor(ab Abiturient, userScore float64) bool {
 	return ab.Score >= userScore
 }
 
+// Competitor tiers returned by CompetitorTier.
+const (
+	CompetitorNone      = iota // ranks below the user, or out of the race
+	CompetitorPotential        // ranks above, but low priority here → likely places elsewhere
+	CompetitorReal             // ranks above AND will take the seat here
+)
+
+// CompetitorTier grades how real a threat ab is to userScore's budget seat,
+// accounting for adaptive placement (an applicant lands on their HIGHEST
+// priority where they qualify, so a high-scored applicant whose priority here
+// is low almost always leaves for a program they prefer):
+//
+//   - CompetitorReal: already enrolled here (seat claimed), OR ranks ≥ user
+//     with priority 1 (this program is their top choice → they'll take it).
+//     Priority 0 (unparsed) is treated as top, to stay conservative.
+//   - CompetitorPotential: ranks ≥ user but priority ≥ 2 — they compete only
+//     if they miss every higher-priority program. The "🔮 хто піде деінде"
+//     simulator resolves these per-person via their other applications.
+//   - CompetitorNone: contract/dropped, or ranks below the user.
+func CompetitorTier(ab Abiturient, userScore float64) int {
+	if !IsBudgetContender(ab) {
+		return CompetitorNone
+	}
+	if IsEnrolledStatus(ab.Status) {
+		return CompetitorReal
+	}
+	if ab.Score < userScore {
+		return CompetitorNone
+	}
+	if ab.Priority <= 1 { // 1 = top choice; 0 = unknown → conservative
+		return CompetitorReal
+	}
+	return CompetitorPotential
+}
+
 // FundingFilter selects applicants by their funding type (budget vs
 // contract). FundingAny is the zero value and matches everyone.
 type FundingFilter int

@@ -907,13 +907,17 @@ func buildRefineView(prog *abit.Program, res service.SimResult) (string, *tele.R
 	return sb.String(), kb
 }
 
+// countCompetitors counts REAL competitors (priority-1 / enrolled who rank
+// above) — matching the 🔴 markers in the list. Potential (🟡) leavers are
+// excluded so the number isn't inflated by high-scored, low-priority
+// applicants who almost always place elsewhere.
 func countCompetitors(abits []abit.Abiturient, mine float64) int {
 	if mine <= 0 {
 		return 0
 	}
 	n := 0
 	for _, ab := range abits {
-		if abit.IsCompetitor(ab, mine) {
+		if abit.CompetitorTier(ab, mine) == abit.CompetitorReal {
 			n++
 		}
 	}
@@ -927,9 +931,12 @@ func countCompetitors(abits []abit.Abiturient, mine float64) int {
 func applicantButtonLabel(ab abit.Abiturient, rank int, userScore float64) string {
 	threatMarker := ""
 	if userScore > 0 {
-		if abit.IsCompetitor(ab, userScore) {
+		switch abit.CompetitorTier(ab, userScore) {
+		case abit.CompetitorReal:
 			threatMarker = "🔴 "
-		} else {
+		case abit.CompetitorPotential:
+			threatMarker = "🟡 "
+		default:
 			threatMarker = "🟢 "
 		}
 	}
@@ -998,12 +1005,15 @@ func buildApplicantDetail(ab abit.Abiturient, userScore float64) (string, *tele.
 		}
 	}
 
-	// Verdict line — visible cue for whether this applicant competes with
-	// the user for a budget seat.
+	// Verdict line — priority-aware, because adaptive placement sends an
+	// applicant to their highest-priority program where they qualify.
 	if userScore > 0 {
-		if abit.IsCompetitor(ab, userScore) {
-			sb.WriteString("\n🔴 _Конкурент за твій бюджетний вступ_\n")
-		} else {
+		switch abit.CompetitorTier(ab, userScore) {
+		case abit.CompetitorReal:
+			sb.WriteString("\n🔴 _Реальний конкурент за твій бюджетний вступ_\n")
+		case abit.CompetitorPotential:
+			fmt.Fprintf(&sb, "\n🟡 _Вище за балом, але пріоритет %d — імовірно пройде на вищий пріоритет і звільнить це місце. Натисни «🔮 хто піде деінде», щоб перевірити._\n", ab.Priority)
+		default:
 			sb.WriteString("\n🟢 _Не конкурент_\n")
 		}
 	}
