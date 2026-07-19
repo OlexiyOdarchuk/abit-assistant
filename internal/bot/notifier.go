@@ -73,8 +73,11 @@ func (b *Bot) notifyUserChanges(ctx context.Context, uid int64) int {
 	if len(lists) == 0 {
 		return 0
 	}
-	nmt, _ := b.store.GetUserNMT(ctx, uid)
 	settings, _ := b.store.GetUserSettings(ctx, uid)
+	if !settings.NotifyOnChange {
+		return 0 // user hasn't opted in
+	}
+	nmt, _ := b.store.GetUserNMT(ctx, uid)
 	in := abit.AnalyzeInput{
 		UserScore:  0, // filled per program below (rating depends on the program)
 		UserQuotas: settings.Quotas,

@@ -79,6 +79,7 @@ const (
 	btnUniqueListDelete        = "l_del"
 	btnUniqueListDeleteConfirm = "l_del_yes"
 	btnUniqueListsBack         = "l_back"
+	btnUniqueNotifyToggle      = "l_notify"
 
 	btnUniqueNoop = "noop"
 

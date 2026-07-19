@@ -29,8 +29,32 @@ func (b *Bot) renderSavedLists(c tele.Context) error {
 	if err != nil {
 		return fmt.Errorf("не вдалося прочитати списки: %w", err)
 	}
-	text, kb := buildSavedListsView(lists)
+	settings, _ := b.store.GetUserSettings(ctx, senderID(c))
+	text, kb := buildSavedListsView(lists, settings.NotifyOnChange)
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb)
+}
+
+// handleNotifyToggle flips the "notify me when a saved program's chance
+// changes" opt-in and re-renders the lists screen so the state is visible.
+func (b *Bot) handleNotifyToggle(c tele.Context) error {
+	uid := senderID(c)
+	ctx, cancel := context.WithTimeout(context.Background(), listsTimeout)
+	defer cancel()
+
+	settings, err := b.store.GetUserSettings(ctx, uid)
+	if err != nil {
+		return err
+	}
+	settings.NotifyOnChange = !settings.NotifyOnChange
+	if err := b.store.SetUserSettings(ctx, uid, settings); err != nil {
+		return fmt.Errorf("не вдалося зберегти: %w", err)
+	}
+	toast := "🔔 Сповіщення увімкнено"
+	if !settings.NotifyOnChange {
+		toast = "🔕 Сповіщення вимкнено"
+	}
+	_ = c.Respond(&tele.CallbackResponse{Text: toast})
+	return b.renderSavedLists(c)
 }
 
 // handleListManage opens the per-list action screen.
@@ -255,18 +279,24 @@ func (b *Bot) loadOwnedList(ctx context.Context, c tele.Context, id int64) (*sto
 
 // --- View builders --------------------------------------------------------
 
-func buildSavedListsView(lists []storage.SavedList) (string, *tele.ReplyMarkup) {
+func buildSavedListsView(lists []storage.SavedList, notifyOn bool) (string, *tele.ReplyMarkup) {
 	var sb strings.Builder
 	sb.WriteString("📂 *Збережені списки*\n\n")
 	if len(lists) == 0 {
 		sb.WriteString("Поки порожньо.\n\n")
 		sb.WriteString("Зроби `/search`, тоді на екрані аналізу натисни *💾 Зберегти*.")
 	} else {
-		fmt.Fprintf(&sb, "Усього: *%d*", len(lists))
+		fmt.Fprintf(&sb, "Усього: *%d*\n", len(lists))
+	}
+	// Show the current opt-in state in the text too, not just the button.
+	if notifyOn {
+		sb.WriteString("\n🔔 Сповіщення про зміну шансу: *увімкнено* — напишу в приват, якщо шанс на збережену програму зміниться.")
+	} else {
+		sb.WriteString("\n🔕 Сповіщення про зміну шансу: *вимкнено*.")
 	}
 
 	kb := &tele.ReplyMarkup{}
-	rows := make([]tele.Row, 0, len(lists)+1)
+	rows := make([]tele.Row, 0, len(lists)+2)
 	for _, l := range lists {
 		label := fmt.Sprintf("📂 %s", truncateRunes(l.Name, 48))
 		rows = append(rows, kb.Row(kb.Data(
@@ -274,6 +304,12 @@ func buildSavedListsView(lists []storage.SavedList) (string, *tele.ReplyMarkup) 
 			callback.Encode(strconv.FormatInt(l.ID, 10)),
 		)))
 	}
+	// Toggle button — its label states what the tap will DO.
+	toggle := "🔔 Увімкнути сповіщення про зміну"
+	if notifyOn {
+		toggle = "🔕 Вимкнути сповіщення про зміну"
+	}
+	rows = append(rows, kb.Row(kb.Data(toggle, btnUniqueNotifyToggle)))
 	rows = append(rows, kb.Row(kb.Data("⬅️ Меню", btnUniqueMenu)))
 	kb.Inline(rows...)
 	return sb.String(), kb

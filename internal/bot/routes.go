@@ -72,6 +72,7 @@ func (b *Bot) registerRoutes() {
 		btnUniqueListDelete:            b.handleListDelete,
 		btnUniqueListDeleteConfirm:     b.handleListDeleteConfirm,
 		btnUniqueListsBack:             b.handleListsBack,
+		btnUniqueNotifyToggle:          b.handleNotifyToggle,
 		btnUniqueAdmin:                 b.handleAdminCB,
 		btnUniqueAdminStats:            b.handleAdminStats,
 		btnUniqueAdminBroadcast:        b.handleAdminBroadcast,

@@ -203,6 +203,11 @@ type UserSettings struct {
 	// LastDiscoverContract true means the last search included contract
 	// offers (default is budget-only).
 	LastDiscoverContract bool `json:"last_discover_contract,omitempty"`
+
+	// NotifyOnChange opts the user into background DMs when a saved program's
+	// admission chance changes. Off by default — it's an explicit opt-in the
+	// user toggles from /lists.
+	NotifyOnChange bool `json:"notify_on_change,omitempty"`
 }
 
 // UserNMT maps subject name → applicant's score for it. Subject names
