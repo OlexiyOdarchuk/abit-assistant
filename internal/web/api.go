@@ -44,6 +44,7 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 	abits := abit.Decode(prog)
 	score := abit.ComputeRating(prog, req.Profile.rating())
 	analysis := abit.Analyze(prog, abits, abit.AnalyzeInput{UserScore: score, UserQuotas: req.Profile.Quotas})
+	optimistic := abit.Analyze(prog, abits, abit.AnalyzeInput{UserScore: score, UserQuotas: req.Profile.Quotas, ExcludeUnlikely: true})
 
 	apps := make([]applicantDTO, len(abits))
 	for i, ab := range abits {
@@ -54,7 +55,8 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		apps[i] = applicantDTO{Abiturient: ab, Tier: tier}
 	}
 	writeJSON(w, http.StatusOK, analyzeResp{
-		Program: metaOf(prog, req.URL), UserScore: score, Analysis: analysis, Applicants: apps,
+		Program: metaOf(prog, req.URL), UserScore: score,
+		Analysis: analysis, AnalysisOptimistic: optimistic, Applicants: apps,
 	})
 }
 

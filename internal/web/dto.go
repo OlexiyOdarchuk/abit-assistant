@@ -80,7 +80,11 @@ type analyzeResp struct {
 	Program    programMeta    `json:"program"`
 	UserScore  float64        `json:"userScore"`
 	Analysis   abit.Analysis  `json:"analysis"`
-	Applicants []applicantDTO `json:"applicants"`
+	// AnalysisOptimistic is the same analysis with priority-3+ (⚪ unlikely)
+	// rivals dropped from the rank — the client's "не рахувати пріоритет 3+"
+	// toggle swaps to it without a round-trip.
+	AnalysisOptimistic abit.Analysis  `json:"analysisOptimistic"`
+	Applicants         []applicantDTO `json:"applicants"`
 }
 
 type matchDTO struct {

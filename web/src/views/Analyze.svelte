@@ -93,8 +93,15 @@
     if (initialUrl && !result && !loading) run()
   })
 
-  let an = $derived(result?.analysis)
+  // "Рахувати пріоритет 3+ як конкурентів" — true keeps the conservative
+  // analysis, false swaps to the optimistic one (⚪ unlikely rivals dropped).
+  let countUnlikely = $state(true)
+  let an = $derived(
+    result ? (countUnlikely ? result.analysis : result.analysisOptimistic) : null
+  )
   let meta = $derived(result ? chanceMeta(an.chance) : null)
+  // The toggle only matters while we're estimating (no published cutoff).
+  let canToggleUnlikely = $derived(!!result && result.userScore > 0 && !(result.analysis?.cutoff > 0))
 
   // Human text for the non-fatal warning codes Analyze may attach.
   const WARNINGS = {
@@ -172,6 +179,13 @@
           {/if}
           {#if an.my_real_rank > 0}<div><dt>Твоє місце</dt><dd>{an.my_real_rank}</dd></div>{/if}
         </dl>
+        {#if canToggleUnlikely}
+          <label class="unlikely-toggle">
+            <input type="checkbox" bind:checked={countUnlikely} />
+            Рахувати пріоритет 3+ як конкурентів
+            <span class="hint">⚪ вони майже напевно пройдуть на вищий пріоритет — вимкни для оптимістичної оцінки</span>
+          </label>
+        {/if}
         {#if an.advice}<p class="advice">💡 {an.advice}</p>{/if}
         {#if an.warnings?.length}
           {#each an.warnings as w}
@@ -253,6 +267,8 @@
   .breakdown dd { margin: 0.2rem 0 0; font-size: 1.5rem; font-weight: 700; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .breakdown .ground { border-color: var(--accent); background: var(--accent-soft); }
   .breakdown .ground dd { color: var(--accent-ink); }
+  .unlikely-toggle { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.9rem; font-size: 0.9rem; cursor: pointer; }
+  .unlikely-toggle .hint { flex-basis: 100%; color: var(--muted); font-size: 0.76rem; line-height: 1.35; margin-left: 1.5rem; }
   .advice { margin-top: 0.9rem; padding: 0.7rem 0.9rem; background: var(--accent-soft); color: var(--accent-ink); border-radius: 12px; }
   .warn { margin-top: 0.6rem; padding: 0.7rem 0.9rem; background: color-mix(in srgb, #e6a817 18%, transparent); color: var(--ink); border-radius: 12px; font-size: 0.92rem; line-height: 1.4; }
   .asof { margin-top: 0.7rem; text-align: center; color: var(--muted); font-size: 0.82rem; }

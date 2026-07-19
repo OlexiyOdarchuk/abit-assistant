@@ -137,6 +137,12 @@ type AnalyzeInput struct {
 	// simulator sets id→false to drop competitors it determined will place
 	// elsewhere, so the refined analysis reflects that.
 	Overrides OverrideMap
+	// ExcludeUnlikely, when true, drops priority-3+ high-scorers (⚪
+	// CompetitorUnlikely) from the field before ranking — an optimistic view
+	// that assumes they place on one of their higher-priority programs. This
+	// is a blunt heuristic; the "🔮 хто піде деінде" simulator is the verified
+	// version (it checks abit-poisk per person).
+	ExcludeUnlikely bool
 }
 
 // Analyze ranks the user against the field of applicants on the given
@@ -208,6 +214,11 @@ func Analyze(prog *Program, abits []Abiturient, in AnalyzeInput) Analysis {
 				continue
 			}
 		} else if !IsBudgetContender(ab) {
+			continue
+		} else if in.ExcludeUnlikely && !enrolled && !quotaHolder &&
+			CompetitorTier(ab, in.UserScore) == CompetitorUnlikely {
+			// Optimistic view: assume priority-3+ high-scorers place on one of
+			// their 2+ higher-priority programs and free this seat.
 			continue
 		} else if !enrolled && !quotaHolder && ab.Score < in.UserScore {
 			continue

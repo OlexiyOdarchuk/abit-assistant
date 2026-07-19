@@ -39,6 +39,9 @@ const (
 	// "where can I get in" results, so every re-render of the summary keeps
 	// offering the "back to results" button.
 	fsmKeyFromDiscover = "from_discover"
+	// fsmKeyExclUnlikely remembers the summary's "count priority-3+ rivals?"
+	// toggle across re-renders. true = drop ⚪ unlikely rivals (optimistic).
+	fsmKeyExclUnlikely = "excl_unlikely"
 )
 
 // Search list display modes — toggled by the user from the results page.
@@ -503,15 +506,18 @@ func (b *Bot) renderSummary(c tele.Context, prog *abit.Program, rawURL string, b
 	// refine screen) keep the "back to results" button.
 	prevState, _ := b.fsm.Get(ctx, uid)
 	fromDiscover := backToDiscover
+	exclUnlikely := false
 	if prevState.Name == fsmStateViewing && prevState.Get(fsmKeyURL) == rawURL {
 		if v, _ := prevState.Data[fsmKeyFromDiscover].(bool); v {
 			fromDiscover = true
 		}
+		exclUnlikely, _ = prevState.Data[fsmKeyExclUnlikely].(bool)
 	}
 
 	analysis := abit.Analyze(prog, abits, abit.AnalyzeInput{
-		UserScore:  userScore,
-		UserQuotas: settings.Quotas,
+		UserScore:       userScore,
+		UserQuotas:      settings.Quotas,
+		ExcludeUnlikely: exclUnlikely,
 	})
 
 	data := map[string]any{
@@ -522,11 +528,14 @@ func (b *Bot) renderSummary(c tele.Context, prog *abit.Program, rawURL string, b
 	if fromDiscover {
 		data[fsmKeyFromDiscover] = true
 	}
+	if exclUnlikely {
+		data[fsmKeyExclUnlikely] = true
+	}
 	if err := b.fsm.Set(context.Background(), uid, fsmStateViewing, data); err != nil {
 		b.log.Warn("fsm set failed", "err", err)
 	}
 
-	text, kb := buildSummaryView(prog, analysis, fromDiscover)
+	text, kb := buildSummaryView(prog, analysis, fromDiscover, exclUnlikely)
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
 }
 
@@ -723,7 +732,7 @@ func buildResultsView(prog *abit.Program, view, all []abit.Abiturient, page int,
 
 // buildSummaryView renders the per-program analysis screen: user's
 // rating, chance, counts, verdict + actions.
-func buildSummaryView(prog *abit.Program, an abit.Analysis, backToDiscover bool) (string, *tele.ReplyMarkup) {
+func buildSummaryView(prog *abit.Program, an abit.Analysis, backToDiscover, exclUnlikely bool) (string, *tele.ReplyMarkup) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "🎓 *%s* — %s\n\n",
 		mdEscape(prog.UniversityName), mdEscape(prog.ProgramName))
@@ -786,6 +795,9 @@ func buildSummaryView(prog *abit.Program, an abit.Analysis, backToDiscover bool)
 				sb.WriteString("\nℹ️ Заяв поки менше, ніж бюджетних місць — тож майже всі проходять. Якщо кампанія щойно почалась, більшість заяв подадуть в останні дні й прохідний бал ще зросте.")
 			}
 		}
+		if exclUnlikely {
+			sb.WriteString("\n\n⚪ _Пріоритет 3+ не враховано — оптимістична оцінка (припускаємо, що вони пройдуть на вищий пріоритет)._")
+		}
 		if prog.SourceAsOf != "" {
 			fmt.Fprintf(&sb, "\n\n🕒 _Дані osvita станом на %s._", mdEscape(prog.SourceAsOf))
 		}
@@ -806,6 +818,11 @@ func buildSummaryView(prog *abit.Program, an abit.Analysis, backToDiscover bool)
 	// (slow, rate-sensitive) simulation would just report "nothing changed".
 	if an.UserScore > 0 && an.Cutoff <= 0 {
 		rows = append(rows, kb.Row(kb.Data("🔮 Уточнити: хто піде деінде", btnUniqueRefine)))
+		toggleLabel := "⚪ Не рахувати пріоритет 3+"
+		if exclUnlikely {
+			toggleLabel = "⚪ Рахувати пріоритет 3+"
+		}
+		rows = append(rows, kb.Row(kb.Data(toggleLabel, btnUniqueToggleUnlikely)))
 	}
 	// When opened from "where can I get in", offer a way back to that list.
 	if backToDiscover {
@@ -814,6 +831,29 @@ func buildSummaryView(prog *abit.Program, an abit.Analysis, backToDiscover bool)
 	rows = append(rows, kb.Row(kb.Data("⬅️ Меню", btnUniqueMenu)))
 	kb.Inline(rows...)
 	return sb.String(), kb
+}
+
+// handleToggleUnlikely flips the summary's "count priority-3+ rivals?" switch
+// and re-renders. It only mutates the persisted flag; renderSummary reads it
+// back and recomputes the analysis (with ⚪ unlikely rivals kept or dropped).
+func (b *Bot) handleToggleUnlikely(c tele.Context) error {
+	rawURL, _, _, err := b.viewingState(c)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	uid := senderID(c)
+	state, err := b.fsm.Get(ctx, uid)
+	if err != nil {
+		return fmt.Errorf("не вдалося прочитати стан: %w", err)
+	}
+	cur, _ := state.Data[fsmKeyExclUnlikely].(bool)
+	state.Data[fsmKeyExclUnlikely] = !cur
+	if err := b.fsm.Set(ctx, uid, fsmStateViewing, state.Data); err != nil {
+		b.log.Warn("fsm set failed", "err", err)
+	}
+	return b.showSummary(c, rawURL)
 }
 
 // handleRefine runs the priority simulation for the program in the current

@@ -54,7 +54,8 @@ const (
 	btnUniqueViewList         = "view_list"
 	btnUniqueChart            = "chart"
 	btnUniqueSaveList         = "save_list"
-	btnUniqueRefine           = "refine" // priority simulation on the summary
+	btnUniqueRefine           = "refine"          // priority simulation on the summary
+	btnUniqueToggleUnlikely   = "toggle_unlikely" // count priority-3+ rivals or not
 
 	// Discover ("where can I get in") flow.
 	btnUniqueDiscover            = "disc"

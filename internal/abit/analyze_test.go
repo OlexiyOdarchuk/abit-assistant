@@ -255,6 +255,33 @@ func TestAnalyze_CompetitorTierCounts(t *testing.T) {
 	}
 }
 
+func TestAnalyze_ExcludeUnlikelyImprovesRank(t *testing.T) {
+	withPrio := func(p int) func(*Abiturient) { return func(a *Abiturient) { a.Priority = p } }
+	prog := progWithVolume(5, 0, 0)
+	// 4 rivals above me: 2 real (priority 1), 2 unlikely (priority 4/5).
+	abits := []Abiturient{
+		ab(1, 195, withPrio(1)),
+		ab(2, 194, withPrio(1)),
+		ab(3, 193, withPrio(4)),
+		ab(4, 192, withPrio(5)),
+	}
+	base := Analyze(prog, abits, AnalyzeInput{UserScore: 175})
+	if base.MyRealRank != 5 { // 4 above me + myself
+		t.Fatalf("baseline rank = %d, want 5", base.MyRealRank)
+	}
+	opt := Analyze(prog, abits, AnalyzeInput{UserScore: 175, ExcludeUnlikely: true})
+	if opt.MyRealRank != 3 { // only the 2 priority-1 rivals remain above me
+		t.Errorf("optimistic rank = %d, want 3", opt.MyRealRank)
+	}
+	if opt.CompetitorsTotal != 2 {
+		t.Errorf("optimistic CompetitorsTotal = %d, want 2", opt.CompetitorsTotal)
+	}
+	// Tier counts don't depend on the toggle (unlikely were never counted).
+	if base.RealCompetitors != opt.RealCompetitors {
+		t.Errorf("RealCompetitors changed with toggle: %d vs %d", base.RealCompetitors, opt.RealCompetitors)
+	}
+}
+
 func TestAnalyze_AlreadyEnrolledTakesSeats(t *testing.T) {
 	prog := progWithVolume(3, 0, 0)
 	// 3 "до наказу" (all already taking seats), 0 left → Zero
