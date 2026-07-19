@@ -25,9 +25,10 @@ type Deps struct {
 
 // Server is the HTTP app: the JSON API plus the embedded SPA.
 type Server struct {
-	deps Deps
-	log  *slog.Logger
-	mux  *http.ServeMux
+	deps    Deps
+	log     *slog.Logger
+	mux     *http.ServeMux
+	predict *service.PriorityPredictor
 }
 
 // New wires the routes. The returned Server is an http.Handler.
@@ -37,12 +38,14 @@ func New(deps Deps) *Server {
 		log = slog.Default()
 	}
 	s := &Server{deps: deps, log: log.With("component", "web"), mux: http.NewServeMux()}
+	s.predict = service.NewPriorityPredictor(deps.Program).WithLogger(s.log)
 
 	s.mux.HandleFunc("GET /api/filters", s.handleFilters)
 	s.mux.HandleFunc("POST /api/analyze", s.handleAnalyze)
 	s.mux.HandleFunc("POST /api/discover", s.handleDiscover)
 	s.mux.HandleFunc("POST /api/simulate", s.handleSimulate)
 	s.mux.HandleFunc("POST /api/applicant", s.handleApplicant)
+	s.mux.HandleFunc("POST /api/predict", s.handlePredict)
 	s.mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})

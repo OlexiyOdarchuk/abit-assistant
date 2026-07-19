@@ -25,7 +25,9 @@ export const QUOTAS = [
 const PROFILE_KEY = 'aa.profile.v1'
 const LISTS_KEY = 'aa.lists.v1'
 const HISTORY_KEY = 'aa.history.v1'
+const PRIORITIES_KEY = 'aa.priorities.v1'
 const HISTORY_MAX = 20
+export const MAX_PRIORITIES = 5
 
 function readJSON(key, fallback) {
   try {
@@ -45,6 +47,9 @@ export const profile = $state({
 
 export const lists = $state(readJSON(LISTS_KEY, []))
 export const history = $state(readJSON(HISTORY_KEY, []))
+// priorities: the user's ranked application list (index 0 = priority 1).
+// Each item: {url, university, program}. Drives the "Мій прогноз" view.
+export const priorities = $state(readJSON(PRIORITIES_KEY, []))
 
 const ONBOARDED_KEY = 'aa.onboarded.v1'
 // ui.onboarded gates the whole app: until the user finishes the profile
@@ -65,6 +70,9 @@ export function persist() {
   })
   $effect(() => {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(history))
+  })
+  $effect(() => {
+    localStorage.setItem(PRIORITIES_KEY, JSON.stringify(priorities))
   })
   $effect(() => {
     localStorage.setItem(ONBOARDED_KEY, ui.onboarded ? '1' : '0')
@@ -101,4 +109,26 @@ export function removeList(url) {
 }
 export function isSaved(url) {
   return lists.some((l) => l.url === url)
+}
+
+// --- priorities ------------------------------------------------------------
+
+export function addPriority(item) {
+  if (!item?.url) return false
+  if (priorities.some((p) => p.url === item.url)) return false
+  if (priorities.length >= MAX_PRIORITIES) return false
+  priorities.push({ url: item.url, university: item.university ?? '', program: item.program ?? '' })
+  return true
+}
+export function removePriority(i) {
+  if (i >= 0 && i < priorities.length) priorities.splice(i, 1)
+}
+export function movePriority(i, delta) {
+  const j = i + delta
+  if (i < 0 || i >= priorities.length || j < 0 || j >= priorities.length) return
+  const [it] = priorities.splice(i, 1)
+  priorities.splice(j, 0, it)
+}
+export function hasPriority(url) {
+  return priorities.some((p) => p.url === url)
 }

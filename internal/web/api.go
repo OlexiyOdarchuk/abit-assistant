@@ -162,6 +162,45 @@ func (s *Server) handleApplicant(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, applicantResp{Entries: same, Confident: confident})
 }
 
+// maxPredictURLs caps the ranked list the predictor scores per request —
+// matches the campaign's 5-priority ceiling.
+const maxPredictURLs = 5
+
+// handlePredict scores the user's ranked application list and returns the
+// predicted placement (highest priority they clear).
+func (s *Server) handlePredict(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URLs            []string   `json:"urls"`
+		Profile         profileReq `json:"profile"`
+		ExcludeUnlikely bool       `json:"excludeUnlikely"`
+	}
+	if err := decodeBody(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, "некоректний запит")
+		return
+	}
+	if len(req.URLs) == 0 {
+		writeJSON(w, http.StatusOK, predictResp{Items: []predictItemDTO{}, AdmittedIndex: -1})
+		return
+	}
+	if len(req.URLs) > maxPredictURLs {
+		req.URLs = req.URLs[:maxPredictURLs]
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), apiTimeout)
+	defer cancel()
+
+	pred := s.predict.Predict(ctx, req.URLs, service.PredictInput{
+		NMT:             req.Profile.NMT,
+		CreativeScore:   req.Profile.Creative,
+		Quotas:          req.Profile.Quotas,
+		ExcludeUnlikely: req.ExcludeUnlikely,
+	})
+	items := make([]predictItemDTO, len(pred.Items))
+	for i, o := range pred.Items {
+		items[i] = predictItemOf(o)
+	}
+	writeJSON(w, http.StatusOK, predictResp{Items: items, AdmittedIndex: pred.AdmittedIndex})
+}
+
 // discoverFilters builds one SpecFilter per chosen region (or a single
 // all-Ukraine filter), mirroring the bot's logic. budgetOnly defaults the
 // funding scope.

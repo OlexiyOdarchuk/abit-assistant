@@ -180,3 +180,39 @@ func TestAPI_BadRequest(t *testing.T) {
 		t.Errorf("bad body code = %d, want 400", w.Code)
 	}
 }
+
+func TestAPI_Predict(t *testing.T) {
+	// The fake source returns the same undersubscribed program for every URL,
+	// so a decent-scoring user passes → admitted to their top priority.
+	body := `{"urls":["https://x/y2025/r21/34/1/","https://x/y2025/r21/34/2/"],` +
+		`"profile":{"nmt":{"Українська мова":180,"Математика":190,"Історія України":175}}}`
+	w := do(t, newTestServer(t), "POST", "/api/predict", body)
+	if w.Code != 200 {
+		t.Fatalf("predict code = %d body=%s", w.Code, w.Body)
+	}
+	var resp predictResp
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Items) != 2 {
+		t.Fatalf("items = %d, want 2", len(resp.Items))
+	}
+	if resp.AdmittedIndex != 0 {
+		t.Errorf("admittedIndex = %d, want 0", resp.AdmittedIndex)
+	}
+	if !resp.Items[0].Passes || !resp.Items[0].Fetched {
+		t.Errorf("item[0] should pass and be fetched: %+v", resp.Items[0])
+	}
+}
+
+func TestAPI_Predict_EmptyURLs(t *testing.T) {
+	w := do(t, newTestServer(t), "POST", "/api/predict", `{"urls":[],"profile":{}}`)
+	if w.Code != 200 {
+		t.Fatalf("code = %d", w.Code)
+	}
+	var resp predictResp
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.AdmittedIndex != -1 || len(resp.Items) != 0 {
+		t.Errorf("empty urls → items %d admitted %d, want 0/-1", len(resp.Items), resp.AdmittedIndex)
+	}
+}

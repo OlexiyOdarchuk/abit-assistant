@@ -77,9 +77,9 @@ type applicantResp struct {
 }
 
 type analyzeResp struct {
-	Program    programMeta    `json:"program"`
-	UserScore  float64        `json:"userScore"`
-	Analysis   abit.Analysis  `json:"analysis"`
+	Program   programMeta   `json:"program"`
+	UserScore float64       `json:"userScore"`
+	Analysis  abit.Analysis `json:"analysis"`
 	// AnalysisOptimistic is the same analysis with priority-3+ (⚪ unlikely)
 	// rivals dropped from the rank — the client's "не рахувати пріоритет 3+"
 	// toggle swaps to it without a round-trip.
@@ -113,6 +113,33 @@ func matchOf(m service.ProgramMatch) matchDTO {
 type discoverResp struct {
 	Found   int        `json:"found"`
 	Matches []matchDTO `json:"matches"`
+}
+
+// predictItemDTO is one program in the user's ranked list, scored.
+type predictItemDTO struct {
+	URL        string  `json:"url"`
+	University string  `json:"university"`
+	Program    string  `json:"program"`
+	Score      float64 `json:"score"`
+	Fetched    bool    `json:"fetched"`
+	Chance     string  `json:"chance"`
+	ChanceTier int     `json:"chanceTier"`
+	Emoji      string  `json:"emoji"`
+	Cutoff     float64 `json:"cutoff,omitempty"`
+	Passes     bool    `json:"passes"`
+}
+
+func predictItemOf(o service.PriorityOutcome) predictItemDTO {
+	return predictItemDTO{
+		URL: o.URL, University: o.University, Program: o.Program, Score: o.Score,
+		Fetched: o.Fetched, Chance: o.Analysis.Chance.Label(), ChanceTier: int(o.Analysis.Chance.Tier()),
+		Emoji: o.Analysis.Chance.Emoji(), Cutoff: o.Analysis.Cutoff, Passes: o.Passes(),
+	}
+}
+
+type predictResp struct {
+	Items         []predictItemDTO `json:"items"`
+	AdmittedIndex int              `json:"admittedIndex"`
 }
 
 type departureDTO struct {

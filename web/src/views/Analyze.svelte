@@ -1,6 +1,7 @@
 <script>
   import { analyze, simulate } from '../lib/api.js'
-  import { profile, profileFilled, saveList, removeList, isSaved, addHistory, history } from '../lib/state.svelte.js'
+  import { profile, profileFilled, saveList, removeList, isSaved, addHistory, history,
+    priorities, addPriority, removePriority, hasPriority, MAX_PRIORITIES } from '../lib/state.svelte.js'
   import { chanceMeta } from '../lib/chance.js'
   import Chance from '../lib/Chance.svelte'
   import Applicants from '../lib/Applicants.svelte'
@@ -65,6 +66,24 @@
       simError = e.message
     } finally {
       simLoading = false
+    }
+  }
+
+  // add-to-priorities integration
+  let prioMsg = $state('')
+  let inPriorities = $derived(!!result && hasPriority(result.program.url))
+  function togglePriority() {
+    if (!result) return
+    const url = result.program.url
+    if (hasPriority(url)) {
+      removePriority(priorities.findIndex((p) => p.url === url))
+      prioMsg = 'Прибрано зі списку пріоритетів.'
+      return
+    }
+    if (addPriority({ url, university: result.program.university, program: result.program.program })) {
+      prioMsg = '✅ Додано. Дивись «🎯 Прогноз».'
+    } else {
+      prioMsg = `Не додано — максимум ${MAX_PRIORITIES} пріоритетів.`
     }
   }
 
@@ -204,11 +223,15 @@
 
       <div class="actions">
         <button onclick={toggleSave}>{isSaved(result.program.url) ? '💾 Збережено' : '💾 Зберегти'}</button>
+        <button onclick={togglePriority}>
+          {inPriorities ? '🎯 У пріоритетах ✓' : '🎯 До пріоритетів'}
+        </button>
         {#if result.userScore > 0 && !(an.cutoff > 0)}
           <button onclick={runSim} disabled={simLoading}>🔮 {simLoading ? 'Уточнюю…' : 'Хто піде деінде'}</button>
         {/if}
         <a class="btn-link" href={result.program.url} target="_blank" rel="noreferrer">osvita ↗</a>
       </div>
+      {#if prioMsg}<p class="hint">{prioMsg}</p>{/if}
 
       {#if simError}<p class="error">⚠️ {simError}</p>{/if}
       {#if simLoading}<Loading phrases={simPhrases} />{/if}

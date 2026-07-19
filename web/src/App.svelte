@@ -3,6 +3,7 @@
   import Onboarding from './views/Onboarding.svelte'
   import Home from './views/Home.svelte'
   import Analyze from './views/Analyze.svelte'
+  import Priorities from './views/Priorities.svelte'
   import Discover from './views/Discover.svelte'
   import Profile from './views/Profile.svelte'
   import Lists from './views/Lists.svelte'
@@ -34,12 +35,14 @@
   const nav = [
     { id: 'home', label: 'Головна' },
     { id: 'analyze', label: 'Аналіз' },
+    { id: 'priorities', label: 'Прогноз' },
     { id: 'discover', label: 'Куди вступлю' },
     { id: 'lists', label: 'Збережені' },
   ]
   const bottomNav = [
     { id: 'home', label: 'Головна', icon: '🏠' },
     { id: 'analyze', label: 'Аналіз', icon: '🔎' },
+    { id: 'priorities', label: 'Прогноз', icon: '🎯' },
     { id: 'discover', label: 'Підбір', icon: '🧭' },
     { id: 'lists', label: 'Списки', icon: '💾' },
   ]
@@ -69,6 +72,8 @@
     <main>
       {#if route.name === 'discover'}
         <Discover />
+      {:else if route.name === 'priorities'}
+        <Priorities />
       {:else if route.name === 'profile'}
         <Profile />
       {:else if route.name === 'lists'}
