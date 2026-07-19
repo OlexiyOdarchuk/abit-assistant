@@ -208,7 +208,25 @@ type UserSettings struct {
 	// admission chance changes. Off by default — it's an explicit opt-in the
 	// user toggles from /lists.
 	NotifyOnChange bool `json:"notify_on_change,omitempty"`
+
+	// Priorities is the user's own ranked application list (index 0 = priority
+	// 1). The "🎯 Мій прогноз" screen walks it top-down to predict the highest
+	// priority where they clear the budget cutoff. Capped at MaxPriorities.
+	Priorities []PriorityItem `json:"priorities,omitempty"`
 }
+
+// PriorityItem is one program in the user's ranked application list. The
+// university/program labels are cached from the last fetch so the list renders
+// without re-scraping; URL is the source of truth.
+type PriorityItem struct {
+	URL        string `json:"url"`
+	University string `json:"university,omitempty"`
+	Program    string `json:"program,omitempty"`
+}
+
+// MaxPriorities caps the user's ranked list — the campaign allows up to 5
+// budget priorities.
+const MaxPriorities = 5
 
 // UserNMT maps subject name → applicant's score for it. Subject names
 // match the keys used by abit.Abiturient.DetailScores.
