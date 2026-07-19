@@ -45,6 +45,22 @@
 // The emitted blob is base64 twice over: outer is what the template
 // prints, inner is the AES output. Some payloads only have a single
 // layer — the decoder transparently handles either.
+//
+// SCOPE — this is a 2025 (archive) decryptor, verified 2026-07-19:
+//
+//   - It targets the OLD portal at vstup2025.edbo.gov.ua, a Handlebars/jQuery
+//     page whose `dec`/`multiply`/`subtract` helpers this package replicates.
+//   - The CURRENT campaign at vstup.edbo.gov.ua moved to a Next.js/React SPA:
+//     no functions.js, no client-side `dec` Handlebars helper — data now comes
+//     from a JSON backend. Whether it still AES-encrypts names with THIS key
+//     derivation (year salt "2026", the (7500 - prsid) template constant) is
+//     UNVERIFIED — that delivery is gone, so a live-2026 EDBO source needs a
+//     fresh capture against the new API (see tools/edbo-reverse/) before any
+//     of this can be reused. Do not assume "wait for 2026 and wire it in".
+//   - osvita is the working 2026 source (internal/parser/osvita), so EDBO is
+//     redundancy we don't currently need. This package remains as a tested
+//     utility for the 2025 archive (e.g. reading final-2025 rows for
+//     calibration) and is reachable via `aa edbo decrypt`.
 package edbo
 
 import (

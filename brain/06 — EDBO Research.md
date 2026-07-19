@@ -8,6 +8,24 @@ tags: [project/abit-assistant, doc/edbo, status/reversed]
 > ендпоінтів, схем і виправлена формула → [[../tools/edbo-reverse/API.md|tools/edbo-reverse/API.md]].
 > Нижче — історичний контекст; ключові висновки вже не «blocked».
 
+> **⚠️ ОНОВЛЕНО 19.07.2026 — кампанія 2026 стартувала, EDBO змінив портал.**
+> `vstup.edbo.gov.ua` тепер **Next.js SPA** (`/_next/static/chunks/...`), а не
+> jQuery/Handlebars 2025-сторінка. Наслідки:
+> - Піддомен `vstup2026.edbo.gov.ua` **не існує** (DNS не резолвиться); поточний
+>   портал — просто `vstup.edbo.gov.ua`. Старий `vstup2025.edbo.gov.ua` (з
+>   `functions.js`, `dec`/`multiply`) ще живий як архів.
+> - Реверснутий 2025-API (`/offers-list/`, `/offer-requests/`, Handlebars-
+>   темплейти) — **для 2026 не діє**; Next.js тягне дані з іншого бекенду.
+> - Крипта `internal/edbo/crypto.go` лишається валідною лише для 2025-архіву.
+>   Чи 2026 Next.js досі AES-шифрує ПІБ тим самим ключем — **НЕ перевірено**
+>   (стара доставка зникла). Потрібен свіжий `capture.py` проти нового API.
+> - **Це не блокер:** osvita вже працює на 2026 (парсер обсягів полагоджено
+>   19.07 — новий inline-формат `Максимальне держзамовлення: <b>N</b>`).
+>   EDBO — резервне джерело, не критичне зараз.
+> - Дія, якщо колись беремось: `capture.py --interactive` проти живого
+>   `vstup.edbo.gov.ua/offer/<id>/` → знайти JSON-endpoint зі заявами → перевірити,
+>   чи ПІБ шифровані і яким ключем → тоді `internal/parser/edbo/`.
+
 ## TL;DR
 
 ЄДЕБО — першоджерело даних (osvita.ua тільки проксіює). Раніше парсер

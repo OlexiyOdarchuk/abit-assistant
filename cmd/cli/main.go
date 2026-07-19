@@ -70,7 +70,9 @@ Commands:
   osvita    <program-url>                  Parse a vstup.osvita.ua program page.
   abitpoisk <"surname initial initial">    Search abit-poisk.org.ua.
   decode    [< program.json]               Decode a Program (stdin) into []Abiturient.
-  edbo decrypt <b64> <prsid> <n> [year]    Decrypt a vstup.edbo.gov.ua name blob.
+  edbo decrypt <b64> <prsid> <n> [year]    Decrypt a 2025-archive EDBO name blob
+                                           (vstup2025.edbo.gov.ua; the 2026
+                                           portal is a React app, not this scheme).
 
 Examples:
   aa osvita https://vstup.osvita.ua/y2025/r14/282/1471029/
