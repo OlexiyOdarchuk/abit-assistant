@@ -169,6 +169,15 @@ func (s *PrioritySimulator) Simulate(ctx context.Context, prog *abit.Program, ab
 				}
 				return
 			}
+			// abit-poisk mixes namesakes (surname + initials only). Only trust
+			// entries we can confidently attribute to THIS candidate (anchored
+			// on their competitive score) — otherwise we'd remove a real
+			// competitor because a same-named stranger placed elsewhere.
+			same, confident := abit.SamePersonEntries(entries, cand.ab.Score)
+			if !confident {
+				return // can't confirm identity → keep them as a competitor
+			}
+			entries = same
 			// Confirmed: already recommended on a higher priority elsewhere.
 			if uni, ok := placedHigher(entries, cand.priority); ok {
 				departures[i] = &Departure{Name: cand.ab.Name, University: uni, Priority: betterPriority(entries, cand.priority)}

@@ -130,7 +130,8 @@ func (s *Server) handleSimulate(w http.ResponseWriter, r *http.Request) {
 // handleApplicant returns an applicant's other applications from abit-poisk.
 func (s *Server) handleApplicant(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name string `json:"name"`
+		Name  string  `json:"name"`
+		Score float64 `json:"score"` // anchor: this applicant's competitive score
 	}
 	if err := decodeBody(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "некоректний запит")
@@ -142,14 +143,17 @@ func (s *Server) handleApplicant(w http.ResponseWriter, r *http.Request) {
 	entries, err := s.deps.Applicant.Search(ctx, req.Name)
 	if err != nil {
 		if errors.Is(err, abit.ErrNoData) {
-			writeJSON(w, http.StatusOK, []abit.ApplicantEntry{})
+			writeJSON(w, http.StatusOK, applicantResp{Entries: []abit.ApplicantEntry{}})
 			return
 		}
 		s.log.WarnContext(ctx, "applicant", "err", err)
 		writeErr(w, http.StatusBadGateway, "не вдалося знайти інші заяви")
 		return
 	}
-	writeJSON(w, http.StatusOK, entries)
+	// abit-poisk mixes namesakes (surname + initials); filter to the same
+	// person, anchored on their competitive score.
+	same, confident := abit.SamePersonEntries(entries, req.Score)
+	writeJSON(w, http.StatusOK, applicantResp{Entries: same, Confident: confident})
 }
 
 // discoverFilters builds one SpecFilter per chosen region (or a single

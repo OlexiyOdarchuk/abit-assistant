@@ -42,10 +42,21 @@ func TestSimulate_RemovesHigherPriorityPlacement(t *testing.T) {
 	}
 
 	searcher := searcherFromMap(map[string][]abit.ApplicantEntry{
-		// Другий is recommended on a priority-1 program → he leaves this one.
-		"Другий О О": {{Priority: "1", Status: "Рекомендовано", University: "КНУ"}},
+		// abit-poisk returns ALL apps for the name (incl. this program). The
+		// anchor is the entry whose score matches the candidate's here; the
+		// person is then confirmed by the invariant attestat (188 / 179).
+		"Другий О О": {
+			{Priority: "3", TotalScore: "185", EducationAvg: "188", University: "Цей"},      // anchor (this program)
+			{Priority: "1", Status: "Рекомендовано", University: "КНУ", EducationAvg: "188"}, // same person → he leaves
+			// A same-named stranger (different attestat) recommended elsewhere —
+			// must be filtered out so it doesn't drive the departure.
+			{Priority: "1", Status: "Рекомендовано", University: "ХАІ", EducationAvg: "150"},
+		},
 		// Третій's only other app is low priority and not placed → stays.
-		"Третій О О": {{Priority: "5", Status: "Допущено", University: "ЛНУ"}},
+		"Третій О О": {
+			{Priority: "2", TotalScore: "182", EducationAvg: "179", University: "Цей"}, // anchor
+			{Priority: "5", Status: "Допущено", University: "ЛНУ", EducationAvg: "179"},
+		},
 	})
 	appSvc := service.NewApplicantService(searcher, store, time.Hour)
 	sim := service.NewPrioritySimulator(appSvc, nil, nil, 4, 40)
@@ -98,7 +109,7 @@ func TestSimulate_PredictsPreWave(t *testing.T) {
 	// abit-poisk: he has a priority-1 application elsewhere, also just
 	// "Допущено" (so the status signal can't act) — prediction must.
 	searcher := searcherFromMap(map[string][]abit.ApplicantEntry{
-		"Хитрий О О": {{Priority: "1", Status: "Допущено", University: "КНУ", Specialty: "Право", TotalScore: "195"}},
+		"Хитрий О О": {{Priority: "1", Status: "Допущено", University: "КНУ", Specialty: "Право", TotalScore: "195", EducationAvg: "190"}},
 	})
 	appSvc := service.NewApplicantService(searcher, store, time.Hour)
 

@@ -67,6 +67,13 @@ type applicantDTO struct {
 	Competitor bool `json:"competitor"`
 }
 
+// applicantResp wraps the abit-poisk "other applications" list with a flag
+// telling the client whether they were disambiguated to the same person.
+type applicantResp struct {
+	Entries   []abit.ApplicantEntry `json:"entries"`
+	Confident bool                  `json:"confident"`
+}
+
 type analyzeResp struct {
 	Program    programMeta    `json:"program"`
 	UserScore  float64        `json:"userScore"`

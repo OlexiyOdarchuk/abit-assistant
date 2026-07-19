@@ -19,6 +19,7 @@
   // applicant history modal
   let openRow = $state(null)
   let history = $state(null)
+  let histConfident = $state(false)
   let histErr = $state('')
   let histLoading = $state(false)
 
@@ -34,7 +35,9 @@
     }
     histLoading = true
     try {
-      history = await fetchApplicant(row.name)
+      const resp = await fetchApplicant(row.name, row.score)
+      history = resp.entries ?? []
+      histConfident = resp.confident ?? false
     } catch (e) {
       histErr = e.message
     } finally {
@@ -101,6 +104,11 @@
       {:else if histErr}
         <p class="muted">{histErr}</p>
       {:else if history && history.length}
+        {#if histConfident}
+          <p class="note ok">✓ Звірено за балом документа про освіту — точно ця людина</p>
+        {:else}
+          <p class="note warn">⚠️ abit-poisk шукає за прізвищем та ініціалами — у списку можуть бути однофамільці</p>
+        {/if}
         <ul class="hist">
           {#each history as e}
             <li>
@@ -204,4 +212,7 @@
   .hist { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
   .hist li { padding: 0.5rem 0.7rem; background: var(--hover); border-radius: 8px; font-size: 0.9rem; }
   .muted { color: var(--muted); }
+  .note { font-size: 0.8rem; margin: 0 0 0.6rem; padding: 0.4rem 0.6rem; border-radius: 8px; }
+  .note.ok { color: #15803d; background: rgba(34, 197, 94, 0.12); }
+  .note.warn { color: #b45309; background: rgba(245, 158, 11, 0.12); }
 </style>

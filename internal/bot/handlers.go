@@ -392,7 +392,11 @@ func (b *Bot) handleApplicantHistory(c tele.Context) error {
 		return fmt.Errorf("не вдалося знайти інші заяви: %w", err)
 	}
 
-	text, kb := buildHistoryView(*ab, entries)
+	// abit-poisk searches by surname + initials, so results mix namesakes.
+	// Filter to the same person using this applicant's competitive score as an
+	// anchor (see SamePersonEntries).
+	same, confident := abit.SamePersonEntries(entries, ab.Score)
+	text, kb := buildHistoryView(*ab, same, confident)
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
 }
 
@@ -1048,13 +1052,18 @@ func buildApplicantDetail(ab abit.Abiturient, userScore float64) (string, *tele.
 }
 
 // buildHistoryView renders the applicant's other applications.
-func buildHistoryView(ab abit.Abiturient, entries []abit.ApplicantEntry) (string, *tele.ReplyMarkup) {
+func buildHistoryView(ab abit.Abiturient, entries []abit.ApplicantEntry, confident bool) (string, *tele.ReplyMarkup) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "📋 *%s* — інші заяви\n\n", mdEscape(ab.Name))
 
 	if len(entries) == 0 {
 		sb.WriteString("_На abit-poisk нічого не знайдено._")
 	} else {
+		if confident {
+			sb.WriteString("_✓ Звірено за балом документа про освіту — це та сама людина._\n\n")
+		} else {
+			sb.WriteString("⚠️ _abit-poisk шукає за прізвищем та ініціалами — серед заяв можуть бути однофамільці. Звіряй бал документа про освіту._\n\n")
+		}
 		// Sort by priority asc, then by total score desc so the most
 		// relevant submissions come first.
 		sort.SliceStable(entries, func(i, j int) bool {
