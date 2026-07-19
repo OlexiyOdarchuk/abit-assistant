@@ -1,4 +1,4 @@
-// Package storage is the persistence layer: it opens a SQLite database,
+// Package storage is the persistence layer: it opens a PostgreSQL database,
 // applies embedded migrations, and wraps the sqlc-generated query object
 // with JSON convenience helpers for the JSON-blob columns
 // (users.nmt_scores / users.settings, saved_lists.data, *_cache.data).
@@ -15,13 +15,11 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver "pgx"
 
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage/db"
@@ -42,103 +40,53 @@ var (
 	ErrNotFound = errors.New("storage: not found")
 )
 
-// readPoolSize is how many concurrent read connections the read pool keeps.
-// WAL lets any number of readers proceed while the single writer holds its
-// lock, so reads no longer queue behind each other or behind a write.
-const readPoolSize = 4
-
-// Store is the high-level persistence facade. It owns two connection pools —
-// a single-connection writer and a multi-connection reader (WAL allows one
-// writer + N readers concurrently) — and the sqlc query objects bound to
-// each. Writes and the infrequent admin reads go through Queries; hot-path
-// reads go through ReadQueries.
-//
-// DB is the write pool (kept for tests / migrations / raw access).
+// Store is the high-level persistence facade. It owns one PostgreSQL
+// connection pool and the sqlc query object bound to it. Postgres handles
+// concurrent readers and writers natively (MVCC), so there is no read/write
+// pool split — ReadQueries is an alias of Queries, kept so call sites that
+// distinguish hot-path reads stay unchanged.
 type Store struct {
 	DB          *sql.DB
-	readDB      *sql.DB
-	Queries     *db.Queries // bound to the write pool
-	ReadQueries *db.Queries // bound to the read pool
+	Queries     *db.Queries
+	ReadQueries *db.Queries
 }
 
-// Open opens (or creates) a SQLite database at path, applies pending
-// migrations, and returns a ready-to-use Store. Pass ":memory:" for an
-// ephemeral in-memory database (intended for tests).
-func Open(ctx context.Context, path string) (*Store, error) {
-	dsn, err := buildDSN(path)
-	if err != nil {
-		return nil, err
+// Pool sizing: managed Postgres plans cap total connections, and this app
+// runs as (bot + web) against the same database, so keep each modest.
+const (
+	maxOpenConns    = 10
+	maxIdleConns    = 2
+	connMaxLifetime = time.Hour
+)
+
+// Open connects to the PostgreSQL database at dsn (a libpq/pgx connection
+// URL, e.g. "postgres://user:pass@host:5432/db?sslmode=require"), applies any
+// pending migrations, and returns a ready-to-use Store.
+func Open(ctx context.Context, dsn string) (*Store, error) {
+	if strings.TrimSpace(dsn) == "" {
+		return nil, errors.New("storage: empty DATABASE_URL")
 	}
-	writeDB, err := sql.Open("sqlite", dsn)
+	sqlDB, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("storage: open: %w", err)
 	}
-	// SQLite has a single writer; pinning to one connection serializes
-	// writes deterministically (no writer-writer SQLITE_BUSY at all).
-	writeDB.SetMaxOpenConns(1)
-	if err := writeDB.PingContext(ctx); err != nil {
-		_ = writeDB.Close()
+	sqlDB.SetMaxOpenConns(maxOpenConns)
+	sqlDB.SetMaxIdleConns(maxIdleConns)
+	sqlDB.SetConnMaxLifetime(connMaxLifetime)
+	if err := sqlDB.PingContext(ctx); err != nil {
+		_ = sqlDB.Close()
 		return nil, fmt.Errorf("storage: ping: %w", err)
 	}
-	// Migrations must run before the read pool starts serving.
-	if err := applyMigrations(ctx, writeDB); err != nil {
-		_ = writeDB.Close()
+	if err := applyMigrations(ctx, sqlDB); err != nil {
+		_ = sqlDB.Close()
 		return nil, err
 	}
-
-	s := &Store{DB: writeDB, Queries: db.New(writeDB)}
-
-	// A separate read pool only pays off for file-backed DBs. An in-memory
-	// DB (tests) can't be reliably shared across independent pools, so reads
-	// and writes share the one handle there.
-	if path == ":memory:" {
-		s.readDB = writeDB
-		s.ReadQueries = s.Queries
-		return s, nil
-	}
-
-	readDB, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		_ = writeDB.Close()
-		return nil, fmt.Errorf("storage: open read pool: %w", err)
-	}
-	readDB.SetMaxOpenConns(readPoolSize)
-	if err := readDB.PingContext(ctx); err != nil {
-		_ = readDB.Close()
-		_ = writeDB.Close()
-		return nil, fmt.Errorf("storage: ping read pool: %w", err)
-	}
-	s.readDB = readDB
-	s.ReadQueries = db.New(readDB)
-	return s, nil
+	q := db.New(sqlDB)
+	return &Store{DB: sqlDB, Queries: q, ReadQueries: q}, nil
 }
 
-// Close releases both database handles.
-func (s *Store) Close() error {
-	var rerr error
-	if s.readDB != nil && s.readDB != s.DB {
-		rerr = s.readDB.Close()
-	}
-	if err := s.DB.Close(); err != nil {
-		return err
-	}
-	return rerr
-}
-
-func buildDSN(path string) (string, error) {
-	// busy_timeout makes SQLite block briefly on contended writes
-	// instead of returning SQLITE_BUSY immediately — even though we
-	// pin MaxOpenConns=1, reads share the same pool and can race
-	// against the writer's lock under load.
-	const pragmas = "_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
-	if path == ":memory:" {
-		return "file::memory:?cache=shared&" + pragmas, nil
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", fmt.Errorf("storage: mkdir: %w", err)
-	}
-	return fmt.Sprintf("file:%s?%s&_pragma=journal_mode(WAL)", path, pragmas), nil
-}
+// Close releases the connection pool.
+func (s *Store) Close() error { return s.DB.Close() }
 
 func applyMigrations(ctx context.Context, sqlDB *sql.DB) error {
 	entries, err := fs.ReadDir(migrationsFS, "migrations")
@@ -156,9 +104,9 @@ func applyMigrations(ctx context.Context, sqlDB *sql.DB) error {
 
 	if _, err := sqlDB.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
-			name       TEXT    PRIMARY KEY,
-			applied_at INTEGER NOT NULL DEFAULT (unixepoch())
-		) STRICT
+			name       TEXT   PRIMARY KEY,
+			applied_at BIGINT NOT NULL DEFAULT (FLOOR(EXTRACT(EPOCH FROM now()))::bigint)
+		)
 	`); err != nil {
 		return fmt.Errorf("storage: schema_migrations: %w", err)
 	}
@@ -166,7 +114,7 @@ func applyMigrations(ctx context.Context, sqlDB *sql.DB) error {
 	for _, name := range names {
 		var count int
 		if err := sqlDB.QueryRowContext(ctx,
-			"SELECT COUNT(*) FROM schema_migrations WHERE name = ?", name,
+			"SELECT COUNT(*) FROM schema_migrations WHERE name = $1", name,
 		).Scan(&count); err != nil {
 			return err
 		}
@@ -191,15 +139,44 @@ func execMigration(ctx context.Context, sqlDB *sql.DB, name, body string) error 
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if _, err := tx.ExecContext(ctx, body); err != nil {
-		return fmt.Errorf("storage: migration %s: %w", name, err)
+	// The pgx database/sql driver uses the extended protocol, which permits
+	// only one statement per Exec, so run each statement of the migration
+	// file separately. Our migrations contain no ';' inside string literals
+	// or function bodies, so a top-level split is safe.
+	for _, stmt := range splitSQLStatements(body) {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("storage: migration %s: %w", name, err)
+		}
 	}
 	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO schema_migrations(name) VALUES (?)", name,
+		"INSERT INTO schema_migrations(name) VALUES ($1)", name,
 	); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+// splitSQLStatements splits a migration file into individual statements on
+// top-level ';'. It first strips "--" line comments so a ';' inside a comment
+// doesn't split a statement (our migrations have no "--" inside string
+// literals, which is the only case that would break). Empty chunks are
+// dropped.
+func splitSQLStatements(body string) []string {
+	var stripped strings.Builder
+	for _, line := range strings.Split(body, "\n") {
+		if i := strings.Index(line, "--"); i >= 0 {
+			line = line[:i]
+		}
+		stripped.WriteString(line)
+		stripped.WriteByte('\n')
+	}
+	var out []string
+	for _, part := range strings.Split(stripped.String(), ";") {
+		if strings.TrimSpace(part) != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 // -----------------------------------------------------------------------

@@ -1,32 +1,76 @@
-# docker compose up -d   — run the bot in the background
-# docker compose logs -f — follow its JSON logs
-# docker compose down    — stop (data/ stays around)
+# Local development stack: Postgres + bot + web.
+#   docker compose up -d          — run everything
+#   docker compose logs -f bot    — follow a service
+#   TEST_DATABASE_URL=postgres://abit:abit@localhost:5432/abit?sslmode=disable go test ./...
+#
+# Production is deployed elsewhere as two Dockerfiles (Dockerfile,
+# Dockerfile.web) against a managed Postgres — this compose is only for dev.
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: abit-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: abit
+      POSTGRES_PASSWORD: abit
+      POSTGRES_DB: abit
+    ports:
+      - "5432:5432" # exposed so `go test` (TEST_DATABASE_URL) can reach it
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U abit -d abit"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   bot:
     build:
       context: .
+      dockerfile: Dockerfile
       args:
         VERSION: "3.0-compose"
-    image: abit-assistant:local
-    container_name: abit-assistant
+    image: abit-assistant-bot:local
+    container_name: abit-bot
     restart: unless-stopped
     env_file:
-      - .env
+      - .env # TELEGRAM_TOKEN, ADMIN_IDS
     environment:
-      # Inside the container the bot writes to /data/abit.db.
-      DATABASE_PATH: /data/abit.db
-    volumes:
-      # Host-side persistence; survives `docker compose down`.
-      - ./data:/data
-    # No ports — the bot uses long-polling, nothing to expose.
-    # Tighten Docker defaults: drop capabilities, no privilege escalation,
-    # read-only rootfs (the only writable path is the /data volume).
+      DATABASE_URL: postgres://abit:abit@postgres:5432/abit?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
     read_only: true
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
-    # Resource hints so a runaway broadcast can't eat the host.
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        VERSION: "3.0-compose"
+    image: abit-assistant-web:local
+    container_name: abit-web
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://abit:abit@postgres:5432/abit?sslmode=disable
+      HTTP_ADDR: ":8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     deploy:
       resources:
         limits:

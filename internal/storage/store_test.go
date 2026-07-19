@@ -3,40 +3,24 @@ package storage_test
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage/pgtest"
 )
 
-// newStore opens a fresh on-disk SQLite database under t.TempDir().
-// We avoid :memory: in tests because shared-cache in-memory connections
-// behave subtly different across modernc.org/sqlite releases.
+// newStore returns a Store on a throwaway Postgres database (see pgtest).
 func newStore(t *testing.T) *storage.Store {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "test.db")
-	s, err := storage.Open(context.Background(), path)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	return s
+	return pgtest.New(t)
 }
 
-func TestOpen_SeparateReadPool(t *testing.T) {
-	s := newStore(t)
-	if s.ReadQueries == s.Queries {
-		t.Fatal("file-backed Store should have a distinct read pool")
-	}
-}
-
-// TestReadPool_ConcurrentReadsAndReadAfterWrite exercises the two-pool path:
-// a write on the writer pool must be visible to the reader pool (WAL
-// read-after-write), and many concurrent reads must all succeed.
-func TestReadPool_ConcurrentReadsAndReadAfterWrite(t *testing.T) {
+// TestConcurrentReadsAndReadAfterWrite: a committed write is visible to a
+// later read, and many concurrent reads all succeed (Postgres MVCC).
+func TestConcurrentReadsAndReadAfterWrite(t *testing.T) {
 	s := newStore(t)
 	ctx := context.Background()
 
@@ -230,7 +214,7 @@ func TestSavedList_CascadeDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Deleting the user should cascade to saved_lists.
-	if _, err := s.DB.ExecContext(ctx, "DELETE FROM users WHERE tg_id = ?", 42); err != nil {
+	if _, err := s.DB.ExecContext(ctx, "DELETE FROM users WHERE tg_id = $1", 42); err != nil {
 		t.Fatal(err)
 	}
 	all, _ := s.ListSavedLists(ctx, 42)

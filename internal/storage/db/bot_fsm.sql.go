@@ -10,7 +10,7 @@ import (
 )
 
 const clearFSM = `-- name: ClearFSM :exec
-DELETE FROM bot_fsm WHERE tg_id = ?
+DELETE FROM bot_fsm WHERE tg_id = $1
 `
 
 func (q *Queries) ClearFSM(ctx context.Context, tgID int64) error {
@@ -19,7 +19,7 @@ func (q *Queries) ClearFSM(ctx context.Context, tgID int64) error {
 }
 
 const getFSM = `-- name: GetFSM :one
-SELECT state, data FROM bot_fsm WHERE tg_id = ?
+SELECT state, data FROM bot_fsm WHERE tg_id = $1
 `
 
 type GetFSMRow struct {
@@ -36,11 +36,11 @@ func (q *Queries) GetFSM(ctx context.Context, tgID int64) (GetFSMRow, error) {
 
 const setFSM = `-- name: SetFSM :exec
 INSERT INTO bot_fsm (tg_id, state, data, updated_at)
-VALUES (?1, ?2, ?3, unixepoch())
-ON CONFLICT(tg_id) DO UPDATE SET
+VALUES ($1, $2, $3, FLOOR(EXTRACT(EPOCH FROM now()))::bigint)
+ON CONFLICT (tg_id) DO UPDATE SET
     state = excluded.state,
     data = excluded.data,
-    updated_at = unixepoch()
+    updated_at = FLOOR(EXTRACT(EPOCH FROM now()))::bigint
 `
 
 type SetFSMParams struct {

@@ -13,7 +13,7 @@ import (
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser/osvita"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/service"
-	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage/pgtest"
 )
 
 // --- fakes ---
@@ -59,11 +59,7 @@ func testProgram(budget int) *abit.Program {
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	store, err := storage.Open(context.Background(), ":memory:")
-	if err != nil {
-		t.Fatalf("store: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := pgtest.New(t)
 
 	prog := testProgram(50)
 	programSvc := service.NewProgramService(fakeSource{prog: prog}, store, time.Hour)

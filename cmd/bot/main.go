@@ -14,7 +14,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -61,18 +60,9 @@ func run() error {
 	log := newLogger(cfg.LogLevel)
 	slog.SetDefault(log)
 
-	// Resolve the DB path to its absolute form so the startup log
-	// unambiguously says which file we just opened. Otherwise relative
-	// paths like ./data/abit.db are ambiguous depending on cwd — the
-	// classic "my profile reset after restart" bug surfaces when the
-	// bot is launched from a different directory between runs.
-	dbAbs, err := filepath.Abs(cfg.DatabasePath)
-	if err != nil {
-		dbAbs = cfg.DatabasePath
-	}
 	cwd, _ := os.Getwd()
 	log.Info("starting abit-assistant bot",
-		"database", dbAbs,
+		"database", config.RedactDatabaseURL(cfg.DatabaseURL),
 		"cwd", cwd,
 		"admins", len(cfg.AdminIDs),
 		"program_ttl", programCacheTTL,
@@ -83,7 +73,7 @@ func run() error {
 		context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	store, err := storage.Open(rootCtx, cfg.DatabasePath)
+	store, err := storage.Open(rootCtx, cfg.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("storage: %w", err)
 	}

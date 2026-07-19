@@ -4,11 +4,11 @@
 
 ALTER TABLE saved_lists ADD COLUMN share_token TEXT NOT NULL DEFAULT '';
 
--- Backfill: every existing row gets a token so the new flow works for
--- already-saved snapshots. lower(hex(randomblob(16))) gives 32 hex chars
--- ≈ 128 bits of entropy.
+-- Backfill: every existing row gets a token. gen_random_uuid() is built in
+-- (PostgreSQL 13+), no extension needed; stripping the dashes yields 32 hex
+-- chars ≈ 128 bits of entropy. On a fresh deploy this touches zero rows.
 UPDATE saved_lists
-    SET share_token = lower(hex(randomblob(16)))
+    SET share_token = replace(gen_random_uuid()::text, '-', '')
     WHERE share_token = '';
 
 -- Unique index excluding the empty-string default (defensive — after the

@@ -10,7 +10,7 @@ import (
 )
 
 const getApplicantCache = `-- name: GetApplicantCache :one
-SELECT data, updated_at FROM applicant_cache WHERE name = ?
+SELECT data, updated_at FROM applicant_cache WHERE name = $1
 `
 
 type GetApplicantCacheRow struct {
@@ -26,7 +26,7 @@ func (q *Queries) GetApplicantCache(ctx context.Context, name string) (GetApplic
 }
 
 const getProgramCache = `-- name: GetProgramCache :one
-SELECT data, updated_at FROM program_cache WHERE url = ?
+SELECT data, updated_at FROM program_cache WHERE url = $1
 `
 
 type GetProgramCacheRow struct {
@@ -43,10 +43,10 @@ func (q *Queries) GetProgramCache(ctx context.Context, url string) (GetProgramCa
 
 const putApplicantCache = `-- name: PutApplicantCache :exec
 INSERT INTO applicant_cache (name, data, updated_at)
-VALUES (?1, ?2, unixepoch())
-ON CONFLICT(name) DO UPDATE SET
+VALUES ($1, $2, FLOOR(EXTRACT(EPOCH FROM now()))::bigint)
+ON CONFLICT (name) DO UPDATE SET
     data = excluded.data,
-    updated_at = unixepoch()
+    updated_at = FLOOR(EXTRACT(EPOCH FROM now()))::bigint
 `
 
 type PutApplicantCacheParams struct {
@@ -61,10 +61,10 @@ func (q *Queries) PutApplicantCache(ctx context.Context, arg PutApplicantCachePa
 
 const putProgramCache = `-- name: PutProgramCache :exec
 INSERT INTO program_cache (url, data, updated_at)
-VALUES (?1, ?2, unixepoch())
-ON CONFLICT(url) DO UPDATE SET
+VALUES ($1, $2, FLOOR(EXTRACT(EPOCH FROM now()))::bigint)
+ON CONFLICT (url) DO UPDATE SET
     data = excluded.data,
-    updated_at = unixepoch()
+    updated_at = FLOOR(EXTRACT(EPOCH FROM now()))::bigint
 `
 
 type PutProgramCacheParams struct {
@@ -78,7 +78,7 @@ func (q *Queries) PutProgramCache(ctx context.Context, arg PutProgramCacheParams
 }
 
 const vacuumApplicantCache = `-- name: VacuumApplicantCache :exec
-DELETE FROM applicant_cache WHERE updated_at < ?
+DELETE FROM applicant_cache WHERE updated_at < $1
 `
 
 func (q *Queries) VacuumApplicantCache(ctx context.Context, updatedAt int64) error {
@@ -87,7 +87,7 @@ func (q *Queries) VacuumApplicantCache(ctx context.Context, updatedAt int64) err
 }
 
 const vacuumProgramCache = `-- name: VacuumProgramCache :exec
-DELETE FROM program_cache WHERE updated_at < ?
+DELETE FROM program_cache WHERE updated_at < $1
 `
 
 func (q *Queries) VacuumProgramCache(ctx context.Context, updatedAt int64) error {

@@ -2,20 +2,15 @@ package fsm_test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/bot/fsm"
-	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage/pgtest"
 )
 
 func newManager(t *testing.T) (*fsm.Manager, int64) {
 	t.Helper()
-	store, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("storage.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := pgtest.New(t)
 	// FSM rows FK on users.tg_id with ON DELETE CASCADE — seed a user.
 	const uid = int64(42)
 	if err := store.UpsertUser(context.Background(), uid); err != nil {

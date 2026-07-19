@@ -11,10 +11,10 @@ import (
 
 const addActivates = `-- name: AddActivates :exec
 INSERT INTO users (tg_id, activates, updated_at)
-VALUES (?1, ?2, unixepoch())
-ON CONFLICT(tg_id) DO UPDATE SET
-    activates = activates + excluded.activates,
-    updated_at = unixepoch()
+VALUES ($1, $2, FLOOR(EXTRACT(EPOCH FROM now()))::bigint)
+ON CONFLICT (tg_id) DO UPDATE SET
+    activates = users.activates + excluded.activates,
+    updated_at = FLOOR(EXTRACT(EPOCH FROM now()))::bigint
 `
 
 type AddActivatesParams struct {
@@ -23,8 +23,7 @@ type AddActivatesParams struct {
 }
 
 // Adds a batched delta accumulated in memory (the hot path buffers the
-// per-update +1s and a periodic flush applies them in one write, so the
-// single SQLite connection isn't hit on every update).
+// per-update +1s and a periodic flush applies them in one write).
 func (q *Queries) AddActivates(ctx context.Context, arg AddActivatesParams) error {
 	_, err := q.db.ExecContext(ctx, addActivates, arg.TgID, arg.Activates)
 	return err
@@ -42,7 +41,7 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 }
 
 const getUser = `-- name: GetUser :one
-SELECT tg_id, nmt_scores, settings, activates, right_activates, created_at, updated_at FROM users WHERE tg_id = ?
+SELECT tg_id, nmt_scores, settings, activates, right_activates, created_at, updated_at FROM users WHERE tg_id = $1
 `
 
 func (q *Queries) GetUser(ctx context.Context, tgID int64) (User, error) {
@@ -61,7 +60,7 @@ func (q *Queries) GetUser(ctx context.Context, tgID int64) (User, error) {
 }
 
 const getUserNMT = `-- name: GetUserNMT :one
-SELECT nmt_scores FROM users WHERE tg_id = ?
+SELECT nmt_scores FROM users WHERE tg_id = $1
 `
 
 func (q *Queries) GetUserNMT(ctx context.Context, tgID int64) (string, error) {
@@ -72,7 +71,7 @@ func (q *Queries) GetUserNMT(ctx context.Context, tgID int64) (string, error) {
 }
 
 const getUserSettings = `-- name: GetUserSettings :one
-SELECT settings FROM users WHERE tg_id = ?
+SELECT settings FROM users WHERE tg_id = $1
 `
 
 func (q *Queries) GetUserSettings(ctx context.Context, tgID int64) (string, error) {
@@ -84,10 +83,10 @@ func (q *Queries) GetUserSettings(ctx context.Context, tgID int64) (string, erro
 
 const incrementActivates = `-- name: IncrementActivates :exec
 INSERT INTO users (tg_id, activates, updated_at)
-VALUES (?1, 1, unixepoch())
-ON CONFLICT(tg_id) DO UPDATE SET
-    activates = activates + 1,
-    updated_at = unixepoch()
+VALUES ($1, 1, FLOOR(EXTRACT(EPOCH FROM now()))::bigint)
+ON CONFLICT (tg_id) DO UPDATE SET
+    activates = users.activates + 1,
+    updated_at = FLOOR(EXTRACT(EPOCH FROM now()))::bigint
 `
 
 // Race-safe counter increment (the Python version had a read-modify-write race).
@@ -98,10 +97,10 @@ func (q *Queries) IncrementActivates(ctx context.Context, tgID int64) error {
 
 const incrementRightActivates = `-- name: IncrementRightActivates :exec
 INSERT INTO users (tg_id, right_activates, updated_at)
-VALUES (?1, 1, unixepoch())
-ON CONFLICT(tg_id) DO UPDATE SET
-    right_activates = right_activates + 1,
-    updated_at = unixepoch()
+VALUES ($1, 1, FLOOR(EXTRACT(EPOCH FROM now()))::bigint)
+ON CONFLICT (tg_id) DO UPDATE SET
+    right_activates = users.right_activates + 1,
+    updated_at = FLOOR(EXTRACT(EPOCH FROM now()))::bigint
 `
 
 func (q *Queries) IncrementRightActivates(ctx context.Context, tgID int64) error {
@@ -138,10 +137,10 @@ func (q *Queries) ListUserIDs(ctx context.Context) ([]int64, error) {
 
 const setUserNMT = `-- name: SetUserNMT :exec
 INSERT INTO users (tg_id, nmt_scores, updated_at)
-VALUES (?1, ?2, unixepoch())
-ON CONFLICT(tg_id) DO UPDATE SET
+VALUES ($1, $2, FLOOR(EXTRACT(EPOCH FROM now()))::bigint)
+ON CONFLICT (tg_id) DO UPDATE SET
     nmt_scores = excluded.nmt_scores,
-    updated_at = unixepoch()
+    updated_at = FLOOR(EXTRACT(EPOCH FROM now()))::bigint
 `
 
 type SetUserNMTParams struct {
@@ -156,10 +155,10 @@ func (q *Queries) SetUserNMT(ctx context.Context, arg SetUserNMTParams) error {
 
 const setUserSettings = `-- name: SetUserSettings :exec
 INSERT INTO users (tg_id, settings, updated_at)
-VALUES (?1, ?2, unixepoch())
-ON CONFLICT(tg_id) DO UPDATE SET
+VALUES ($1, $2, FLOOR(EXTRACT(EPOCH FROM now()))::bigint)
+ON CONFLICT (tg_id) DO UPDATE SET
     settings = excluded.settings,
-    updated_at = unixepoch()
+    updated_at = FLOOR(EXTRACT(EPOCH FROM now()))::bigint
 `
 
 type SetUserSettingsParams struct {
@@ -192,8 +191,8 @@ func (q *Queries) TopUserByActivates(ctx context.Context) (TopUserByActivatesRow
 
 const totalActivates = `-- name: TotalActivates :one
 SELECT
-    CAST(COALESCE(SUM(activates), 0)       AS INTEGER) AS total_activates,
-    CAST(COALESCE(SUM(right_activates), 0) AS INTEGER) AS total_right_activates
+    COALESCE(SUM(activates), 0)::bigint       AS total_activates,
+    COALESCE(SUM(right_activates), 0)::bigint AS total_right_activates
 FROM users
 `
 
@@ -202,8 +201,6 @@ type TotalActivatesRow struct {
 	TotalRightActivates int64
 }
 
-// CASTs needed because COALESCE(SUM(...), 0) returns an unbound NUMERIC in
-// SQLite, which sqlc maps to interface{}. The CAST forces INTEGER.
 func (q *Queries) TotalActivates(ctx context.Context) (TotalActivatesRow, error) {
 	row := q.db.QueryRowContext(ctx, totalActivates)
 	var i TotalActivatesRow
@@ -212,8 +209,8 @@ func (q *Queries) TotalActivates(ctx context.Context) (TotalActivatesRow, error)
 }
 
 const upsertUser = `-- name: UpsertUser :exec
-INSERT INTO users (tg_id) VALUES (?)
-ON CONFLICT(tg_id) DO NOTHING
+INSERT INTO users (tg_id) VALUES ($1)
+ON CONFLICT (tg_id) DO NOTHING
 `
 
 // Creates the user row if missing; safe to call on every interaction.

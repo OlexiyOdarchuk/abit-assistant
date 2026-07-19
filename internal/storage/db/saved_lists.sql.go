@@ -10,7 +10,7 @@ import (
 )
 
 const deleteSavedList = `-- name: DeleteSavedList :exec
-DELETE FROM saved_lists WHERE id = ?
+DELETE FROM saved_lists WHERE id = $1
 `
 
 func (q *Queries) DeleteSavedList(ctx context.Context, id int64) error {
@@ -19,7 +19,7 @@ func (q *Queries) DeleteSavedList(ctx context.Context, id int64) error {
 }
 
 const getSavedList = `-- name: GetSavedList :one
-SELECT id, user_tg_id, name, url, data, created_at, share_token FROM saved_lists WHERE id = ?
+SELECT id, user_tg_id, name, url, data, created_at, share_token FROM saved_lists WHERE id = $1
 `
 
 func (q *Queries) GetSavedList(ctx context.Context, id int64) (SavedList, error) {
@@ -38,7 +38,7 @@ func (q *Queries) GetSavedList(ctx context.Context, id int64) (SavedList, error)
 }
 
 const getSavedListByToken = `-- name: GetSavedListByToken :one
-SELECT id, user_tg_id, name, url, data, created_at, share_token FROM saved_lists WHERE share_token = ?
+SELECT id, user_tg_id, name, url, data, created_at, share_token FROM saved_lists WHERE share_token = $1
 `
 
 func (q *Queries) GetSavedListByToken(ctx context.Context, shareToken string) (SavedList, error) {
@@ -58,7 +58,7 @@ func (q *Queries) GetSavedListByToken(ctx context.Context, shareToken string) (S
 
 const listSavedLists = `-- name: ListSavedLists :many
 SELECT id, user_tg_id, name, url, data, created_at, share_token FROM saved_lists
-WHERE user_tg_id = ?
+WHERE user_tg_id = $1
 ORDER BY created_at DESC
 `
 
@@ -95,7 +95,7 @@ func (q *Queries) ListSavedLists(ctx context.Context, userTgID int64) ([]SavedLi
 
 const saveList = `-- name: SaveList :one
 INSERT INTO saved_lists (user_tg_id, name, url, data, share_token)
-VALUES (?, ?, ?, ?, ?)
+VALUES ($1, $2, $3, $4, $5)
 RETURNING id
 `
 
@@ -121,7 +121,7 @@ func (q *Queries) SaveList(ctx context.Context, arg SaveListParams) (int64, erro
 }
 
 const updateSavedListData = `-- name: UpdateSavedListData :exec
-UPDATE saved_lists SET data = ?2 WHERE id = ?1
+UPDATE saved_lists SET data = $2 WHERE id = $1
 `
 
 type UpdateSavedListDataParams struct {

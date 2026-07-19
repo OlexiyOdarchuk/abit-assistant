@@ -62,7 +62,7 @@ func run() error {
 	rootCtx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	store, err := storage.Open(rootCtx, cfg.DatabasePath)
+	store, err := storage.Open(rootCtx, cfg.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("storage: %w", err)
 	}
@@ -106,7 +106,7 @@ func run() error {
 		_ = httpSrv.Shutdown(shutCtx)
 	}()
 
-	log.Info("starting web server", "addr", addr, "database", cfg.DatabasePath)
+	log.Info("starting web server", "addr", addr, "database", config.RedactDatabaseURL(cfg.DatabaseURL))
 	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("http: %w", err)
 	}

@@ -7,8 +7,8 @@
 -- НМТ scores doesn't lose progress when we redeploy.
 
 CREATE TABLE bot_fsm (
-    tg_id      INTEGER PRIMARY KEY REFERENCES users(tg_id) ON DELETE CASCADE,
-    state      TEXT    NOT NULL DEFAULT '',  -- empty = no active conversation
-    data       TEXT    NOT NULL DEFAULT '{}',
-    updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-) STRICT;
+    tg_id      BIGINT PRIMARY KEY REFERENCES users(tg_id) ON DELETE CASCADE,
+    state      TEXT   NOT NULL DEFAULT '',  -- empty = no active conversation
+    data       TEXT   NOT NULL DEFAULT '{}',
+    updated_at BIGINT NOT NULL DEFAULT (FLOOR(EXTRACT(EPOCH FROM now()))::bigint)
+);

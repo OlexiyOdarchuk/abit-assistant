@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,19 +19,24 @@ type Config struct {
 	// AdminIDs is the set of Telegram user IDs allowed to use /admin
 	// commands.
 	AdminIDs []int64
-	// DatabasePath is a filesystem path to the SQLite database file.
-	// Use ":memory:" for an ephemeral in-memory database.
-	DatabasePath string
+	// DatabaseURL is a PostgreSQL connection URL, e.g.
+	// "postgres://user:pass@host:5432/db?sslmode=require". Managed hosts
+	// hand this out; set it as DATABASE_URL.
+	DatabaseURL string
 	// LogLevel is one of "debug", "info", "warn", "error".
 	LogLevel string
 }
+
+// defaultDatabaseURL is the local-development connection (docker-compose
+// brings up this Postgres). Production overrides it via DATABASE_URL.
+const defaultDatabaseURL = "postgres://abit:abit@localhost:5432/abit?sslmode=disable"
 
 // Load reads configuration from process environment with sensible defaults.
 // It never fails; call Validate before using the bot entrypoint.
 func Load() (*Config, error) {
 	c := &Config{
 		TelegramToken: os.Getenv("TELEGRAM_TOKEN"),
-		DatabasePath:  envOr("DATABASE_PATH", defaultDatabasePath()),
+		DatabaseURL:   envOr("DATABASE_URL", defaultDatabaseURL),
 		LogLevel:      envOr("LOG_LEVEL", "info"),
 	}
 	ids, err := parseInt64List(os.Getenv("ADMIN_IDS"))
@@ -41,33 +45,6 @@ func Load() (*Config, error) {
 	}
 	c.AdminIDs = ids
 	return c, nil
-}
-
-// defaultDatabasePath returns the OS-conventional location for the
-// SQLite file. Resolution order:
-//
-//  1. Legacy: if `./data/abit.db` already exists in the current working
-//     directory, prefer it so existing installs don't suddenly switch
-//     locations and "lose" the profile.
-//  2. XDG: $XDG_DATA_HOME/abit-assistant/abit.db (Linux conventional).
-//  3. Home: $HOME/.local/share/abit-assistant/abit.db (XDG default).
-//  4. Last resort: ./data/abit.db (cwd-relative).
-//
-// The point: a user who runs `go run ./cmd/bot` and then later
-// `aa-bot` from a different cwd lands on the SAME file. Setting
-// DATABASE_PATH explicitly overrides everything.
-func defaultDatabasePath() string {
-	const legacy = "./data/abit.db"
-	if _, err := os.Stat(legacy); err == nil {
-		return legacy
-	}
-	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
-		return filepath.Join(xdg, "abit-assistant", "abit.db")
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".local", "share", "abit-assistant", "abit.db")
-	}
-	return legacy
 }
 
 // Validate checks that fields required for the Telegram bot entrypoint are
@@ -82,6 +59,29 @@ func (c *Config) Validate() error {
 // IsAdmin reports whether the given Telegram user ID has admin privileges.
 func (c *Config) IsAdmin(tgID int64) bool {
 	return slices.Contains(c.AdminIDs, tgID)
+}
+
+// RedactDatabaseURL masks the password in a connection URL so it's safe to
+// log. "postgres://user:secret@host/db" → "postgres://user:***@host/db".
+// Falls back to the host portion only if the URL can't be split cleanly.
+func RedactDatabaseURL(dsn string) string {
+	at := strings.LastIndex(dsn, "@")
+	if at < 0 {
+		return dsn // no credentials embedded
+	}
+	scheme := ""
+	rest := dsn
+	if i := strings.Index(dsn, "://"); i >= 0 {
+		scheme = dsn[:i+3]
+		rest = dsn[i+3:]
+		at = strings.LastIndex(rest, "@")
+	}
+	creds := rest[:at]
+	tail := rest[at:]
+	if colon := strings.Index(creds, ":"); colon >= 0 {
+		creds = creds[:colon] + ":***"
+	}
+	return scheme + creds + tail
 }
 
 func envOr(key, def string) string {

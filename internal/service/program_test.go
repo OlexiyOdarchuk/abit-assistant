@@ -3,7 +3,6 @@ package service_test
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -12,6 +11,7 @@ import (
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/service"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage/pgtest"
 )
 
 // fakeSource is a parser.Source double driven by a programmable Parse fn.
@@ -28,12 +28,7 @@ func (f *fakeSource) ID() string { return "fake" }
 
 func newStore(t *testing.T) *storage.Store {
 	t.Helper()
-	s, err := storage.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	return s
+	return pgtest.New(t)
 }
 
 func newFixtureProgram() *abit.Program {
