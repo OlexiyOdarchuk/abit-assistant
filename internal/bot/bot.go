@@ -27,6 +27,7 @@ type Bot struct {
 	applicantSvc *service.ApplicantService
 	discoverSvc  *service.DiscoverService
 	simSvc       *service.PrioritySimulator
+	predictSvc   *service.PriorityPredictor
 	activates    *activateTracker
 	log          *slog.Logger
 	// rootCtx is set by Run; long-running goroutines (broadcast) derive
@@ -77,6 +78,7 @@ func New(deps Deps) (*Bot, error) {
 		applicantSvc: deps.Applicant,
 		discoverSvc:  deps.Discover,
 		simSvc:       deps.Simulate,
+		predictSvc:   service.NewPriorityPredictor(deps.Program).WithLogger(log),
 		log:          log.With("component", "bot"),
 	}
 	b.activates = newActivateTracker(deps.Store, b.log, 30*time.Second)

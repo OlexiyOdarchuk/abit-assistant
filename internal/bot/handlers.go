@@ -150,6 +150,8 @@ func (b *Bot) handleText(c tele.Context) error {
 	switch state.Name {
 	case fsmStateWaitingURL:
 		return b.runSearch(c, text)
+	case fsmStatePrioAddURL:
+		return b.runPrioAddURL(c, text)
 	case fsmStateProfileEnterScore:
 		return b.handleProfileEnterScore(c, state.Data)
 	case fsmStateProfileEnterCreative:

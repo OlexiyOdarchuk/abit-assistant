@@ -82,6 +82,17 @@ const (
 	btnUniqueListsBack         = "l_back"
 	btnUniqueNotifyToggle      = "l_notify"
 
+	// Priority-prediction flow ("🎯 Мій прогноз").
+	btnUniquePriorities      = "prio"       // open the prediction screen
+	btnUniquePrioAdd         = "prio_add"   // choose how to add a program
+	btnUniquePrioAddURL      = "prio_add_u" // paste an osvita link
+	btnUniquePrioFromSaved   = "prio_add_s" // pick from saved lists
+	btnUniquePrioPickSaved   = "prio_pick"  // append a chosen saved list
+	btnUniquePrioRemove      = "prio_rm"    // drop item N
+	btnUniquePrioUp          = "prio_up"    // move item N up
+	btnUniquePrioDown        = "prio_dn"    // move item N down
+	btnUniquePrioToggleUnlik = "prio_unlik" // count priority-3+ rivals or not
+
 	btnUniqueNoop = "noop"
 
 	// Admin panel.
@@ -108,6 +119,7 @@ func mainMenuKeyboard() *tele.ReplyMarkup {
 	kb := &tele.ReplyMarkup{}
 	kb.Inline(
 		kb.Row(kb.Data("📊 Аналіз спеціальності", btnUniqueSearch)),
+		kb.Row(kb.Data("🎯 Мій прогноз вступу", btnUniquePriorities)),
 		kb.Row(kb.Data("🧭 Куди я вступлю", btnUniqueDiscover)),
 		kb.Row(
 			kb.Data("👤 Профіль", btnUniqueProfile),
