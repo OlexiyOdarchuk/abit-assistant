@@ -5,39 +5,82 @@ import (
 	"strings"
 )
 
-// Volume key fragments osvita.ua uses on the program page. Order matters
-// — we pick the first match, so put the most specific fragments first.
-var budgetVolumeKeys = []string{
-	"Максимальний обсяг державного замовлення",
-	"Обсяг держзамовлення",
-	"Загальний обсяг бюджетних місць",
+// firmBudgetKeys name the ACTUAL number of budget seats (not a ceiling).
+// Preferred over ceilingBudgetKeys when present.
+var firmBudgetKeys = []string{
 	"Обсяг бюджетних місць",
+	"Загальний обсяг бюджетних місць",
+	"Обсяг держзамовлення",
 }
 
-// BudgetVolume returns the program's licensed budget capacity parsed
-// from p.Volume, or 0 if no matching key was scraped.
+// ceilingBudgetKeys name the licensing CEILING (max state order), used only
+// when no firm figure is scraped. "Максимальний обсяг державного замовлення"
+// is the 2025 wording; "Максимальне держзамовлення" is the 2026 wording
+// (rendered inline as "Label: <b>value</b>", not in the old stats table).
+var ceilingBudgetKeys = []string{
+	"Максимальний обсяг державного замовлення",
+	"Максимальне держзамовлення",
+}
+
+// BudgetVolume returns the program's budget seat capacity parsed from
+// p.Volume, or 0 if no matching key was scraped. Prefers a firm figure over
+// a licensing ceiling.
 func (p *Program) BudgetVolume() int {
 	if p == nil {
 		return 0
 	}
-	v, _, _ := matchVolumeKey(p.Volume, budgetVolumeKeys)
+	v, _ := budgetFromVolume(p.Volume)
 	return v
 }
 
-// BudgetVolumeIsCeiling reports whether the figure BudgetVolume returned came
-// from the "Максимальний обсяг державного замовлення" key — the licensing
-// CEILING, not the state order actually placed on this offer. Under adaptive
-// placement the real budget is frequently a fraction of the ceiling (down to
-// zero on some regional offers), so when this is true the seat count — and
-// therefore the estimated chance — is an optimistic upper bound. Callers
-// surface this so a user isn't handed a confident "you're in" built on the
-// maximum-possible rather than the likely-actual number of seats.
+// BudgetVolumeIsCeiling reports whether the figure BudgetVolume returned is a
+// licensing CEILING (max state order) rather than the real number of seats.
+// Under adaptive placement the real budget is frequently a fraction of the
+// ceiling (down to zero on some offers), so when this is true the seat count —
+// and the estimated chance — is an optimistic upper bound. Callers surface
+// this so a user isn't handed a confident "you're in" built on the maximum
+// possible rather than the likely-actual number of seats.
 func (p *Program) BudgetVolumeIsCeiling() bool {
 	if p == nil {
 		return false
 	}
-	_, idx, ok := matchVolumeKey(p.Volume, budgetVolumeKeys)
-	return ok && idx == 0
+	_, ceiling := budgetFromVolume(p.Volume)
+	return ceiling
+}
+
+// budgetFromVolume resolves the budget seat count and whether it's a ceiling.
+// Quota-specific keys (e.g. "Максимальне держзамовлення, квота 1") are skipped
+// so the plain budget total isn't confused with a quota reservation — the 2026
+// budget key is a substring of its own quota variants.
+func budgetFromVolume(m map[string]string) (val int, isCeiling bool) {
+	for _, cand := range firmBudgetKeys {
+		if n, ok := matchVolumeExcludingQuota(m, cand); ok {
+			return n, false
+		}
+	}
+	for _, cand := range ceilingBudgetKeys {
+		if n, ok := matchVolumeExcludingQuota(m, cand); ok {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+// matchVolumeExcludingQuota finds a key containing cand whose value is an int,
+// ignoring any key that also mentions a quota.
+func matchVolumeExcludingQuota(m map[string]string, cand string) (int, bool) {
+	for k, v := range m {
+		if !strings.Contains(k, cand) {
+			continue
+		}
+		if strings.Contains(strings.ToLower(k), "квота") {
+			continue
+		}
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+			return n, true
+		}
+	}
+	return 0, false
 }
 
 // BudgetCutoffRating returns the actual minimum competitive rating among
@@ -69,12 +112,13 @@ func (p *Program) EnrolledBudget() int {
 }
 
 // Quota1Volume returns the licensed capacity reserved for Quota 1
-// (territorial quota for war-affected regions, etc.).
+// (territorial quota for war-affected regions, etc.). Handles the 2025
+// wording ("Квота 1") and the 2026 wording ("…, квота 1").
 func (p *Program) Quota1Volume() int {
 	if p == nil {
 		return 0
 	}
-	return matchVolume(p.Volume, []string{"Квота 1", "Квота1"})
+	return matchVolume(p.Volume, []string{"квота 1", "Квота 1", "Квота1"})
 }
 
 // Quota2Volume returns the licensed capacity reserved for Quota 2.
@@ -82,7 +126,7 @@ func (p *Program) Quota2Volume() int {
 	if p == nil {
 		return 0
 	}
-	return matchVolume(p.Volume, []string{"Квота 2", "Квота2"})
+	return matchVolume(p.Volume, []string{"квота 2", "Квота 2", "Квота2"})
 }
 
 // matchVolume scans m for the first key that contains any candidate

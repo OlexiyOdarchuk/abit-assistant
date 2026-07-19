@@ -27,6 +27,30 @@ func TestBudgetVolume_CeilingKeyFlagged(t *testing.T) {
 	}
 }
 
+func TestBudgetVolume_2026InlineFormat(t *testing.T) {
+	// 2026 wording: budget is "Максимальне держзамовлення" and the quotas are
+	// "…, квота 1/2" (lowercase). The budget key is a substring of its own
+	// quota variants, so the matcher must NOT return a quota value as budget.
+	prog := &Program{Volume: map[string]string{
+		"Максимальне держзамовлення":          "78",
+		"Максимальне держзамовлення, квота 1": "1",
+		"Максимальне держзамовлення, квота 2": "8",
+		"Ліцензований обсяг прийому":          "100",
+	}}
+	if got := prog.BudgetVolume(); got != 78 {
+		t.Errorf("BudgetVolume = %d, want 78 (not a quota value)", got)
+	}
+	if !prog.BudgetVolumeIsCeiling() {
+		t.Error("Максимальне держзамовлення is a ceiling")
+	}
+	if got := prog.Quota1Volume(); got != 1 {
+		t.Errorf("Quota1Volume = %d, want 1", got)
+	}
+	if got := prog.Quota2Volume(); got != 8 {
+		t.Errorf("Quota2Volume = %d, want 8", got)
+	}
+}
+
 func TestBudgetVolume_NoKeyIsNotCeiling(t *testing.T) {
 	empty := &Program{Volume: map[string]string{"щось інше": "5"}}
 	if got := empty.BudgetVolume(); got != 0 {

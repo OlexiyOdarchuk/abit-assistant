@@ -447,18 +447,7 @@ func (p *Parser) fetchStatic(ctx context.Context, programURL string) (*abit.Prog
 	// load it into Volume. abit.Program.BudgetVolume() matches by
 	// substring, so it picks up "Максимальний обсяг…" as the budget
 	// figure regardless of any unrelated stats also present in the table.
-	doc.Find("table tr").Each(func(_ int, tr *goquery.Selection) {
-		tds := tr.Find("td")
-		if tds.Length() != 2 {
-			return
-		}
-		key := strings.Join(strings.Fields(tds.Eq(0).Text()), " ")
-		val := strings.Join(strings.Fields(tds.Eq(1).Text()), " ")
-		if key == "" || val == "" {
-			return
-		}
-		prog.Volume[key] = val
-	})
+	collectVolume(doc, prog.Volume)
 
 	var js strings.Builder
 	doc.Find("script").Each(func(_ int, s *goquery.Selection) {
@@ -502,6 +491,54 @@ func extractJSConfig(js string, prog *abit.Program) {
 	if v, ok := parseJSSubjects(js, "subjects"); ok {
 		prog.Subjects = v
 	}
+}
+
+// collectVolume loads the program's numeric "volume/statistics" figures into
+// vol from BOTH layouts osvita has used:
+//
+//   - 2025: a two-cell "<table><tr><td>key</td><td>value</td></tr>" — the
+//     licensed-volume / enrolment stats block.
+//   - 2026: inline "Label: <b>value</b><br>" pairs (e.g. "Максимальне
+//     держзамовлення: <b>78</b>") rendered outside any table.
+//
+// abit.Program.BudgetVolume()/Quota*Volume() match keys by substring, so any
+// unrelated stats also collected here are harmless. The inline pass keeps only
+// numeric values (volumes are numbers) so bold prose doesn't leak in, and
+// never overwrites a table entry.
+func collectVolume(doc *goquery.Document, vol map[string]string) {
+	doc.Find("table tr").Each(func(_ int, tr *goquery.Selection) {
+		tds := tr.Find("td")
+		if tds.Length() != 2 {
+			return
+		}
+		key := strings.Join(strings.Fields(tds.Eq(0).Text()), " ")
+		val := strings.Join(strings.Fields(tds.Eq(1).Text()), " ")
+		if key == "" || val == "" {
+			return
+		}
+		vol[key] = val
+	})
+
+	doc.Find("b").Each(func(_ int, b *goquery.Selection) {
+		if len(b.Nodes) == 0 {
+			return
+		}
+		prev := b.Nodes[0].PrevSibling
+		if prev == nil || prev.Type != html.TextNode {
+			return
+		}
+		label := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(prev.Data), ":"))
+		val := strings.TrimSpace(b.Text())
+		if label == "" || val == "" {
+			return
+		}
+		if _, err := strconv.ParseFloat(strings.ReplaceAll(val, ",", "."), 64); err != nil {
+			return // volumes are numeric; skip bold prose
+		}
+		if _, exists := vol[label]; !exists {
+			vol[label] = val
+		}
+	})
 }
 
 func siblingText(b *goquery.Selection) string {
