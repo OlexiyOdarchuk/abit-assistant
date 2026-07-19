@@ -102,7 +102,9 @@ type Analysis struct {
 	Quota2Total      int         `json:"quota2_total"`      // seats reserved for Q2
 	RemainingSpots   int         `json:"remaining_spots"`   // free seats in the general pool
 	AlreadyEnrolled  int         `json:"already_enrolled"`  // applicants on "до наказу/рекомендовано" — they hold seats
-	CompetitorsTotal int         `json:"competitors_total"` // applicants that pass IsCompetitor
+	CompetitorsTotal int         `json:"competitors_total"` // everyone ranked ≥ user (conservative worst case)
+	RealCompetitors  int         `json:"real_competitors"`  // 🔴 CompetitorReal — priority-1 / enrolled who rank above
+	PotentialRivals  int         `json:"potential_rivals"`  // 🟡 CompetitorPotential — priority-2 who rank above
 	MyRealRank       int         `json:"my_real_rank"`      // 1-based rank against real competitors
 	Chance           ChanceLevel `json:"chance"`
 	Advice           string      `json:"advice"`
@@ -241,6 +243,23 @@ func Analyze(prog *Program, abits []Abiturient, in AnalyzeInput) Analysis {
 	}
 	out.CompetitorsTotal = len(q1) + len(q2) + len(general) + reservedOther + alreadyEnrolled
 	out.AlreadyEnrolled = alreadyEnrolled
+
+	// Priority-aware breakdown for display. Adaptive placement means a
+	// high-scored applicant whose priority here is 2 is a coin-flip and 3+ is
+	// almost surely gone — so the headline "competitors" number should reflect
+	// only the REAL threats, with potentials shown separately. Overrides that
+	// dropped someone (simulator confirmed they place elsewhere) are honored.
+	for _, ab := range abits {
+		if v, forced := in.Overrides[strconv.Itoa(ab.ID)]; forced && !v {
+			continue
+		}
+		switch CompetitorTier(ab, in.UserScore) {
+		case CompetitorReal:
+			out.RealCompetitors++
+		case CompetitorPotential:
+			out.PotentialRivals++
+		}
+	}
 
 	// If the volume scraper failed to find a license size, we cannot
 	// honestly compute remaining seats — bail out with Unknown rather

@@ -67,10 +67,12 @@ func IsCompetitor(ab Abiturient, userScore float64) bool {
 	return ab.Score >= userScore
 }
 
-// Competitor tiers returned by CompetitorTier.
+// Competitor tiers returned by CompetitorTier, ordered by how much of a
+// threat the applicant is (higher = worse).
 const (
 	CompetitorNone      = iota // ranks below the user, or out of the race
-	CompetitorPotential        // ranks above, but low priority here → likely places elsewhere
+	CompetitorUnlikely         // ranks above, but priority 3+ → almost surely places higher
+	CompetitorPotential        // ranks above, priority 2 → 50/50, worth checking
 	CompetitorReal             // ranks above AND will take the seat here
 )
 
@@ -82,9 +84,13 @@ const (
 //   - CompetitorReal: already enrolled here (seat claimed), OR ranks ≥ user
 //     with priority 1 (this program is their top choice → they'll take it).
 //     Priority 0 (unparsed) is treated as top, to stay conservative.
-//   - CompetitorPotential: ranks ≥ user but priority ≥ 2 — they compete only
-//     if they miss every higher-priority program. The "🔮 хто піде деінде"
-//     simulator resolves these per-person via their other applications.
+//   - CompetitorPotential: ranks ≥ user with priority 2 — a genuine coin-flip:
+//     one program above this one, so they compete unless they clear it. The
+//     "🔮 хто піде деінде" simulator resolves them via abit-poisk.
+//   - CompetitorUnlikely: ranks ≥ user with priority 3+ — they placed at least
+//     two programs above this one, so a high score almost always lands them
+//     higher and frees this seat. Shown de-emphasized; the simulator still
+//     verifies before removing them from the rank.
 //   - CompetitorNone: contract/dropped, or ranks below the user.
 func CompetitorTier(ab Abiturient, userScore float64) int {
 	if !IsBudgetContender(ab) {
@@ -96,10 +102,14 @@ func CompetitorTier(ab Abiturient, userScore float64) int {
 	if ab.Score < userScore {
 		return CompetitorNone
 	}
-	if ab.Priority <= 1 { // 1 = top choice; 0 = unknown → conservative
+	switch {
+	case ab.Priority <= 1: // 1 = top choice; 0 = unknown → conservative
 		return CompetitorReal
+	case ab.Priority == 2:
+		return CompetitorPotential
+	default: // priority 3+
+		return CompetitorUnlikely
 	}
-	return CompetitorPotential
 }
 
 // FundingFilter selects applicants by their funding type (budget vs

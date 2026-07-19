@@ -149,7 +149,9 @@ func TestCompetitorTier(t *testing.T) {
 	}{
 		{"below user", mk(160, 1, "Допущено"), CompetitorNone},
 		{"above, priority 1", mk(181, 1, "Допущено"), CompetitorReal},
-		{"above, priority 7", mk(181, 7, "Допущено"), CompetitorPotential},
+		{"above, priority 2 → potential", mk(181, 2, "Допущено"), CompetitorPotential},
+		{"above, priority 3 → unlikely", mk(181, 3, "Допущено"), CompetitorUnlikely},
+		{"above, priority 7 → unlikely", mk(181, 7, "Допущено"), CompetitorUnlikely},
 		{"above, priority 0 (unknown) → conservative", mk(181, 0, "Допущено"), CompetitorReal},
 		{"enrolled here (any priority)", mk(181, 5, "До наказу (бюджет)"), CompetitorReal},
 		{"contract", Abiturient{Score: 190, Priority: 1, StateEducation: false}, CompetitorNone},

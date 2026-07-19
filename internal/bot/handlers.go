@@ -600,12 +600,14 @@ func (b *Bot) showResultsPage(c tele.Context, rawURL string, page int, mode stri
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
 }
 
-// filterCompetitors returns applicants that realistically compete with
-// the user for a budget seat.
+// filterCompetitors returns applicants that realistically compete with the
+// user for a budget seat: real (🔴) and borderline potential (🟡) rivals.
+// Priority-3+ high-scorers (⚪) are excluded — they almost always place on one
+// of their 2+ higher-priority programs and free this seat.
 func filterCompetitors(abits []abit.Abiturient, mine float64) []abit.Abiturient {
 	out := make([]abit.Abiturient, 0)
 	for _, ab := range abits {
-		if abit.IsCompetitor(ab, mine) {
+		if abit.CompetitorTier(ab, mine) >= abit.CompetitorPotential {
 			out = append(out, ab)
 		}
 	}
@@ -734,7 +736,10 @@ func buildSummaryView(prog *abit.Program, an abit.Analysis, backToDiscover bool)
 		fmt.Fprintf(&sb, "%s *Шанс:* %s\n\n", an.Chance.Emoji(), an.Chance.Label())
 
 		sb.WriteString("📊 *Розклад:*\n")
-		fmt.Fprintf(&sb, "   • Реальних конкурентів: *%d*\n", an.CompetitorsTotal)
+		fmt.Fprintf(&sb, "   • Реальних конкурентів: *%d* 🔴\n", an.RealCompetitors)
+		if an.PotentialRivals > 0 {
+			fmt.Fprintf(&sb, "   • Потенційних (пріоритет 2): *%d* 🟡\n", an.PotentialRivals)
+		}
 		if an.AlreadyEnrolled > 0 {
 			fmt.Fprintf(&sb, "   • Вже на наказі/рекомендовано: *%d*\n", an.AlreadyEnrolled)
 		}
@@ -940,6 +945,8 @@ func applicantButtonLabel(ab abit.Abiturient, rank int, userScore float64) strin
 			threatMarker = "🔴 "
 		case abit.CompetitorPotential:
 			threatMarker = "🟡 "
+		case abit.CompetitorUnlikely:
+			threatMarker = "⚪ "
 		default:
 			threatMarker = "🟢 "
 		}
@@ -1016,7 +1023,9 @@ func buildApplicantDetail(ab abit.Abiturient, userScore float64) (string, *tele.
 		case abit.CompetitorReal:
 			sb.WriteString("\n🔴 _Реальний конкурент за твій бюджетний вступ_\n")
 		case abit.CompetitorPotential:
-			fmt.Fprintf(&sb, "\n🟡 _Вище за балом, але пріоритет %d — імовірно пройде на вищий пріоритет і звільнить це місце. Натисни «🔮 хто піде деінде», щоб перевірити._\n", ab.Priority)
+			fmt.Fprintf(&sb, "\n🟡 _Вище за балом, але пріоритет %d — на межі: одна програма вище цієї. Натисни «🔮 хто піде деінде», щоб перевірити, чи пройде він туди._\n", ab.Priority)
+		case abit.CompetitorUnlikely:
+			fmt.Fprintf(&sb, "\n⚪ _Вище за балом, але пріоритет %d — має вже 2+ бажаніші програми, тож майже напевно піде туди й звільнить це місце. Не рахую його реальним конкурентом._\n", ab.Priority)
 		default:
 			sb.WriteString("\n🟢 _Не конкурент_\n")
 		}

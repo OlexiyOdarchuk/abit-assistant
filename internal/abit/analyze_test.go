@@ -230,6 +230,31 @@ func TestAnalyze_GeneralPool_LowChance(t *testing.T) {
 	}
 }
 
+func TestAnalyze_CompetitorTierCounts(t *testing.T) {
+	withPrio := func(p int) func(*Abiturient) { return func(a *Abiturient) { a.Priority = p } }
+	prog := progWithVolume(50, 0, 0)
+	abits := []Abiturient{
+		ab(1, 195, withPrio(1)),                                    // 🔴 real
+		ab(2, 190, withPrio(2)),                                    // 🟡 potential
+		ab(3, 188, withPrio(3)),                                    // ⚪ unlikely (not counted)
+		ab(4, 185, withPrio(7)),                                    // ⚪ unlikely (not counted)
+		ab(5, 192, withPrio(5), withStatus("До наказу (бюджет)")), // 🔴 real (enrolled beats priority)
+		ab(6, 160, withPrio(1)),                                    // below me → none
+	}
+	got := Analyze(prog, abits, AnalyzeInput{UserScore: 175})
+	if got.RealCompetitors != 2 {
+		t.Errorf("RealCompetitors = %d, want 2", got.RealCompetitors)
+	}
+	if got.PotentialRivals != 1 {
+		t.Errorf("PotentialRivals = %d, want 1", got.PotentialRivals)
+	}
+	// Overrides (simulator confirmed a departure) drop from the tier counts.
+	got2 := Analyze(prog, abits, AnalyzeInput{UserScore: 175, Overrides: OverrideMap{"1": false}})
+	if got2.RealCompetitors != 1 {
+		t.Errorf("with override: RealCompetitors = %d, want 1", got2.RealCompetitors)
+	}
+}
+
 func TestAnalyze_AlreadyEnrolledTakesSeats(t *testing.T) {
 	prog := progWithVolume(3, 0, 0)
 	// 3 "до наказу" (all already taking seats), 0 left → Zero

@@ -61,10 +61,12 @@ func metaOf(prog *abit.Program, url string) programMeta {
 }
 
 // applicantDTO is one row of the competitive list, flattening Abiturient plus
-// a server-computed "is this a real competitor for me" flag.
+// the server-computed competitor tier (abit.CompetitorTier):
+// 0 none · 1 unlikely (priority 3+, 🔴→⚪) · 2 potential (priority 2, 🟡) ·
+// 3 real (priority 1 / enrolled, 🔴).
 type applicantDTO struct {
 	abit.Abiturient
-	Competitor bool `json:"competitor"`
+	Tier int `json:"tier"`
 }
 
 // applicantResp wraps the abit-poisk "other applications" list with a flag

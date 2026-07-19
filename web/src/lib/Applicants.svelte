@@ -7,7 +7,12 @@
   let page = $state(0)
   const pageSize = 25
 
-  let view = $derived(onlyCompetitors ? applicants.filter((a) => a.competitor) : applicants)
+  // Competitor tiers (abit.CompetitorTier): 3 real 🔴, 2 potential 🟡,
+  // 1 unlikely ⚪ (priority 3+), 0 none. "Лише конкуренти" keeps real + potential.
+  const TIER = { real: 3, potential: 2, unlikely: 1 }
+  const tierMark = (t) => (t === TIER.real ? '🔴' : t === TIER.potential ? '🟡' : t === TIER.unlikely ? '⚪' : '')
+
+  let view = $derived(onlyCompetitors ? applicants.filter((a) => a.tier >= TIER.potential) : applicants)
   let maxPage = $derived(Math.max(0, Math.ceil(view.length / pageSize) - 1))
   let pageRows = $derived(view.slice(page * pageSize, page * pageSize + pageSize))
 
@@ -55,9 +60,14 @@
   <span class="count">{view.length} заяв</span>
 </div>
 
+<p class="legend">
+  🔴 реальний (пріоритет 1) · 🟡 потенційний (пріоритет 2) ·
+  ⚪ пріоритет 3+ — майже напевно піде вище
+</p>
+
 <div class="rows">
   {#each pageRows as a (a.id)}
-    <button class="row" class:competitor={a.competitor} onclick={() => openHistory(a)}>
+    <button class="row" class:competitor={a.tier === TIER.real} class:potential={a.tier === TIER.potential} onclick={() => openHistory(a)}>
       <span class="rank">{a.num || '—'}</span>
       <span class="name">
         {a.name}
@@ -67,7 +77,7 @@
       <span class="meta">
         П{a.priority || '?'}
         {#if a.documents}· 📄{/if}
-        {#if a.competitor}· 🔴{/if}
+        {#if tierMark(a.tier)}· {tierMark(a.tier)}{/if}
       </span>
     </button>
   {/each}
@@ -166,6 +176,8 @@
   .row:last-child { border-bottom: none; }
   .row:hover { background: var(--hover); }
   .row.competitor { background: color-mix(in srgb, #dc2626 5%, var(--card)); }
+  .row.potential { background: color-mix(in srgb, #f59e0b 6%, var(--card)); }
+  .legend { font-size: 0.72rem; color: var(--muted); margin: 0 0 0.6rem; line-height: 1.4; }
   .rank { color: var(--muted); font-variant-numeric: tabular-nums; }
   .name { display: flex; gap: 0.4rem; align-items: center; min-width: 0; }
   .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

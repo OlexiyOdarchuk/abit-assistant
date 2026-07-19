@@ -158,7 +158,8 @@
         </div>
 
         <dl class="breakdown">
-          <div><dt>Конкурентів</dt><dd>{an.competitors_total}</dd></div>
+          <div><dt>Реальних конкурентів 🔴</dt><dd>{an.real_competitors}</dd></div>
+          {#if an.potential_rivals > 0}<div><dt>Потенційних 🟡</dt><dd>{an.potential_rivals}</dd></div>{/if}
           {#if an.already_enrolled > 0}<div><dt>На наказі</dt><dd>{an.already_enrolled}</dd></div>{/if}
           {#if an.budget_total > 0}<div><dt>Бюджетних місць</dt><dd>{an.budget_total}</dd></div>{/if}
           {#if an.quota1_total > 0}<div><dt>Квота 1</dt><dd>{an.quota1_total}</dd></div>{/if}

@@ -47,7 +47,11 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 
 	apps := make([]applicantDTO, len(abits))
 	for i, ab := range abits {
-		apps[i] = applicantDTO{Abiturient: ab, Competitor: score > 0 && abit.IsCompetitor(ab, score)}
+		tier := abit.CompetitorNone
+		if score > 0 {
+			tier = abit.CompetitorTier(ab, score)
+		}
+		apps[i] = applicantDTO{Abiturient: ab, Tier: tier}
 	}
 	writeJSON(w, http.StatusOK, analyzeResp{
 		Program: metaOf(prog, req.URL), UserScore: score, Analysis: analysis, Applicants: apps,
