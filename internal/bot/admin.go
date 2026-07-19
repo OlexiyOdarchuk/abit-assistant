@@ -46,6 +46,10 @@ func (b *Bot) handleAdminCB(c tele.Context) error {
 	if err := b.requireAdmin(c); err != nil {
 		return err
 	}
+	// Leaving the broadcast prompt via "⬅️ Адмін-меню" must drop the
+	// admin.broadcast.* state — otherwise the next text the admin types is
+	// silently captured as broadcast content.
+	b.clearTransientFSM(c)
 	return b.renderAdminMenu(c)
 }
 

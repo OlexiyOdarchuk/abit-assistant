@@ -340,7 +340,7 @@ func buildRefreshDiffView(id int64, name string, oldAt, newAt time.Time, oldA, n
 
 	sb.WriteString("📊 *Зміни:*\n")
 	// User-score line — usually identical, but flags when the profile
-	// changed between snapshots (e.g. RK toggled, new subject score).
+	// changed between snapshots (e.g. a new subject score entered).
 	if oldA.UserScore != newA.UserScore {
 		fmt.Fprintf(&sb, "🧮 Твій бал: `%.3f` → `%.3f`\n",
 			oldA.UserScore, newA.UserScore)

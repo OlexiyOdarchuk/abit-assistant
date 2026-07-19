@@ -743,13 +743,17 @@ func buildSummaryView(prog *abit.Program, an abit.Analysis, backToDiscover bool)
 		if an.Quota2Total > 0 {
 			fmt.Fprintf(&sb, "   • Квота 2: %d місць\n", an.Quota2Total)
 		}
-		if an.Cutoff > 0 {
+		switch {
+		case an.Cutoff > 0:
 			// Ground truth published — the cutoff is the headline number.
 			fmt.Fprintf(&sb, "   • 🎯 Прохідний бал (за результатами): *%.2f*\n", an.Cutoff)
 			if an.SeatsFilled > 0 {
 				fmt.Fprintf(&sb, "   • Зараховано на бюджет: *%d*\n", an.SeatsFilled)
 			}
-		} else {
+		case an.BudgetTotal > 0:
+			// Only meaningful when we actually know the seat count; when the
+			// volume wasn't parsed, "Вільних місць: 0" is misleading (the
+			// advice/warning already explain the volume is unknown).
 			fmt.Fprintf(&sb, "   • Вільних місць: *%d*\n", an.RemainingSpots)
 		}
 

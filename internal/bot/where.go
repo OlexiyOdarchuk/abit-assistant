@@ -740,8 +740,16 @@ func discoverName(m service.ProgramMatch) string {
 func discoverLabel(m service.ProgramMatch) string {
 	a := m.Analysis
 	standing := a.Chance.Label()
-	if a.MyRealRank > 0 && a.RemainingSpots >= 0 && a.Chance != abit.ChanceUnknown {
+	switch {
+	case a.Chance == abit.ChanceUnknown || a.MyRealRank <= 0:
+		// keep the chance label
+	case a.RemainingSpots > 0:
+		// "місць N" only when there are genuinely free seats — for a program
+		// judged off the published cutoff RemainingSpots is 0, and "місць 0"
+		// next to a green pass emoji reads as a contradiction.
 		standing = fmt.Sprintf("%d-й, місць %d", a.MyRealRank, a.RemainingSpots)
+	default:
+		standing = fmt.Sprintf("%d-й", a.MyRealRank)
 	}
 	return fmt.Sprintf("%s %s — %s", a.Chance.Emoji(), discoverName(m), standing)
 }
