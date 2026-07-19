@@ -99,6 +99,8 @@ func (b *Bot) Run(ctx context.Context) error {
 	// Flush buffered activation counters off the hot path; run() performs a
 	// final flush when ctx is cancelled.
 	go b.activates.run(ctx)
+	// Watch saved lists and DM users when an admission chance changes.
+	go b.runChangeNotifier(ctx, notifyInterval)
 	<-ctx.Done()
 	b.log.Info("shutdown requested")
 	b.tg.Stop()
