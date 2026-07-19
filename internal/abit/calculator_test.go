@@ -29,6 +29,31 @@ func nearly(t *testing.T, got, want float64) {
 	}
 }
 
+func TestComputeRating_ForeignLanguageAliasCountsElective(t *testing.T) {
+	// The profile stores a specific language ("Англійська мова"), but the
+	// program rubric weighs the generic "Іноземна мова" slot — the elective
+	// must still count. Real case (C3 Міжнародні відносини):
+	//   (186·0.45 + 168·0.40 + 167·0.40 + 152·0.50) / (0.45+0.40+0.40+0.50)
+	//   = 293.7 / 1.75 = 167.829
+	// Before the fix the elective silently dropped → 217.7/1.25 = 174.16.
+	prog := &Program{
+		K4Max: 0.35, RK: 1.0,
+		Subjects: []SubjectMeta{
+			{Name: "Українська мова", Coefficient: 0.45},
+			{Name: "Історія України", Coefficient: 0.40},
+			{Name: "Математика", Coefficient: 0.40},
+			{Name: "Іноземна мова", Coefficient: 0.50},
+		},
+	}
+	got := ComputeRating(prog, RatingInput{NMT: map[string]float64{
+		"Українська мова": 186,
+		"Історія України": 168,
+		"Математика":      167,
+		"Англійська мова": 152, // profile name → must map to "Іноземна мова"
+	}})
+	nearly(t, got, 167.829)
+}
+
 func TestComputeRating_WeightedAverageOfRequired(t *testing.T) {
 	prog := sampleProgram()
 	got := ComputeRating(prog, RatingInput{

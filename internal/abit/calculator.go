@@ -2,6 +2,36 @@ package abit
 
 import "math"
 
+// ForeignLanguageSubject is the generic name programs use for the foreign-
+// language slot in their rubric. The profile lets the user pick a specific
+// language, so those names must be canonicalised to this before looking up
+// the program's coefficient.
+const ForeignLanguageSubject = "Іноземна мова"
+
+// foreignLanguageAliases are profile subject names that all map to the
+// rubric's generic ForeignLanguageSubject.
+var foreignLanguageAliases = map[string]bool{
+	"Англійська мова":    true,
+	"Німецька мова":      true,
+	"Французька мова":    true,
+	"Іспанська мова":     true,
+	"Інша іноземна":      true,
+	"Інша іноземна мова": true,
+}
+
+// canonicalSubject maps a (possibly profile-specific) subject name to the name
+// programs use in their rubric. Foreign languages collapse to "Іноземна мова";
+// everything else passes through unchanged. This is what makes a profile score
+// entered as "Англійська мова" count against a rubric that weighs "Іноземна
+// мова" — without it the elective subject silently dropped and the competitive
+// score was computed from three subjects instead of four.
+func canonicalSubject(name string) string {
+	if foreignLanguageAliases[name] {
+		return ForeignLanguageSubject
+	}
+	return name
+}
+
 // RatingInput bundles everything ComputeRating needs from the user
 // profile. Keeping it in a struct lets callers grow the inputs (e.g.
 // extra modifiers) without breaking the call sites.
@@ -60,27 +90,38 @@ func ComputeRating(prog *Program, in RatingInput) float64 {
 		sumCoef += coef
 	}
 
-	// 2. Best additional non-required, non-creative subject.
+	// 2. Best additional non-required, non-creative subject. Subject names are
+	// canonicalised (a profile "Англійська мова" matches a rubric "Іноземна
+	// мова"); without this the elective was dropped and the score came out too
+	// high (three subjects instead of four).
 	var (
 		bestSubj string
+		bestCoef float64
 		bestVal  float64
 	)
 	for subj, score := range in.NMT {
 		if IsRequiredSubject(subj) || subj == CreativeContest {
 			continue
 		}
+		// Exact rubric name wins; fall back to the canonical name so a profile
+		// "Англійська мова" matches a rubric "Іноземна мова" (but a rubric that
+		// literally names "Англійська мова" still matches directly).
 		coef := coefByName[subj]
+		if coef <= 0 {
+			coef = coefByName[canonicalSubject(subj)]
+		}
 		if coef <= 0 {
 			continue
 		}
 		val := score * coef
 		if bestSubj == "" || val > bestVal {
 			bestSubj = subj
+			bestCoef = coef
 			bestVal = val
 		}
 	}
 	if bestSubj != "" {
-		coef := coefByName[bestSubj]
+		coef := bestCoef
 		sumScore += in.NMT[bestSubj] * coef
 		// Official 2025 formula: the elective slot contributes
 		// (К4макс + К4)/2 to the DENOMINATOR (numerator still uses К4).
