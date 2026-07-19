@@ -264,6 +264,13 @@ func Analyze(prog *Program, abits []Abiturient, in AnalyzeInput) Analysis {
 		// ceiling, which is an optimistic upper bound. Say so.
 		out.Warnings = append(out.Warnings, "budget-volume-is-ceiling")
 	}
+	// Undersubscribed field with no published cutoff: fewer competitors than
+	// seats means everyone trivially "passes", which is near-meaningless early
+	// in a campaign (most applications land in the final days). Flag it so a
+	// confident "Проходиш" on a thin field isn't mistaken for a safe bet.
+	if out.Cutoff <= 0 && out.CompetitorsTotal < out.BudgetTotal {
+		out.Warnings = append(out.Warnings, "field-undersubscribed")
+	}
 
 	// Seats consumed by each quota (capped at its reservation). Unused
 	// quota seats roll into the general pool automatically because we

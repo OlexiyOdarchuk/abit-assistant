@@ -71,6 +71,29 @@ func TestAnalyze_CeilingBudgetAddsWarning(t *testing.T) {
 	}
 }
 
+func TestAnalyze_UndersubscribedFieldWarns(t *testing.T) {
+	// 78 seats, only 3 competitors and no published cutoff → everyone
+	// trivially passes, which is near-meaningless early in a campaign.
+	prog := progWithVolume(78, 0, 0)
+	abits := []Abiturient{ab(1, 195), ab(2, 190), ab(3, 185)}
+	got := Analyze(prog, abits, AnalyzeInput{UserScore: 180})
+	if !slices.Contains(got.Warnings, "field-undersubscribed") {
+		t.Errorf("warnings = %v, want field-undersubscribed (3 competitors < 78 seats)", got.Warnings)
+	}
+}
+
+func TestAnalyze_OversubscribedFieldNoUndersubWarning(t *testing.T) {
+	prog := progWithVolume(3, 0, 0)
+	abits := make([]Abiturient, 10)
+	for i := range abits {
+		abits[i] = ab(i+1, 180+float64(i))
+	}
+	got := Analyze(prog, abits, AnalyzeInput{UserScore: 170})
+	if slices.Contains(got.Warnings, "field-undersubscribed") {
+		t.Errorf("10 competitors > 3 seats should not warn undersubscribed; got %v", got.Warnings)
+	}
+}
+
 func TestAnalyze_FirmBudgetNoCeilingWarning(t *testing.T) {
 	prog := &Program{Volume: map[string]string{"Обсяг бюджетних місць": "10"}}
 	got := Analyze(prog, []Abiturient{ab(1, 190)}, AnalyzeInput{UserScore: 180})
