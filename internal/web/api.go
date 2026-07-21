@@ -98,6 +98,7 @@ func (s *Server) handleSimulate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		URL     string     `json:"url"`
 		Profile profileReq `json:"profile"`
+		Deep    bool       `json:"deep"` // recursive (depth-3) resolution of borderline rivals
 	}
 	if err := decodeBody(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "некоректний запит")
@@ -116,8 +117,12 @@ func (s *Server) handleSimulate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "заповни профіль — без власного балу немає що уточнювати")
 		return
 	}
+	depth := 0
+	if req.Deep {
+		depth = service.MaxSimDepth
+	}
 	res, err := s.deps.Simulate.Simulate(ctx, prog, abit.Decode(prog),
-		service.SimInput{UserScore: score, UserQuotas: req.Profile.Quotas})
+		service.SimInput{UserScore: score, UserQuotas: req.Profile.Quotas, Depth: depth})
 	if err != nil {
 		s.log.WarnContext(ctx, "simulate", "err", err)
 		writeErr(w, http.StatusBadGateway, "симуляція не вдалася")

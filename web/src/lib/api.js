@@ -24,7 +24,7 @@ const post = (path, body) =>
 export const getFilters = () => req('/api/filters')
 export const analyze = (url, profile) => post('/api/analyze', { url, profile })
 export const discover = (payload) => post('/api/discover', payload)
-export const simulate = (url, profile) => post('/api/simulate', { url, profile })
+export const simulate = (url, profile, deep = false) => post('/api/simulate', { url, profile, deep })
 export const applicant = (name, score) => post('/api/applicant', { name, score })
 export const predict = (urls, profile, excludeUnlikely = false) =>
   post('/api/predict', { urls, profile, excludeUnlikely })

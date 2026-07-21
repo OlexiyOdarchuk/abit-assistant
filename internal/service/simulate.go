@@ -13,9 +13,20 @@ import (
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 )
 
-// predictCap bounds how many not-yet-recommended competitors get the
-// expensive pre-wave prediction (each costs a resolve + program fetch).
-const predictCap = 12
+const (
+	// MaxSimDepth is the hard ceiling on recursive placement resolution: how
+	// many "and would THEY pass, and would the people above THEM pass…" levels
+	// we descend to resolve a borderline (Medium) verdict.
+	MaxSimDepth = 3
+	// recurCandidateCap bounds how many above-competitors each recursion level
+	// examines — the branching factor. Keeps the fan-out tractable.
+	recurCandidateCap = 8
+	// recurBudget caps the total abit-poisk lookups one Simulate call may spend
+	// across the whole recursion tree. abit-poisk is rate-sensitive, so this is
+	// the real cost governor (cache hits don't count against it — they never
+	// reach the lookup).
+	recurBudget = 80
+)
 
 // ProgramResolver maps a competitor's (university, specialty) to an osvita
 // program URL. Satisfied by *Resolver. nil disables pre-wave prediction.
@@ -84,6 +95,11 @@ func (s *PrioritySimulator) WithLogger(l *slog.Logger) *PrioritySimulator {
 type SimInput struct {
 	UserScore  float64
 	UserQuotas []string
+	// Depth controls recursive placement resolution. 0 = shallow (a competitor
+	// leaves only if they clearly pass a higher-priority program — the fast
+	// default). Up to MaxSimDepth resolves borderline competitors by recursing
+	// into who leaves ABOVE them. Clamped to [0, MaxSimDepth].
+	Depth int
 }
 
 // Departure records a competitor removed from the program's competition
@@ -146,10 +162,20 @@ func (s *PrioritySimulator) Simulate(ctx context.Context, prog *abit.Program, ab
 		capped = true
 	}
 
+	// Recursion budget shared across the whole run: abit-poisk lookups are the
+	// rate-sensitive resource, so one atomic caps them regardless of fan-out.
+	depth := in.Depth
+	if depth < 0 {
+		depth = 0
+	}
+	if depth > MaxSimDepth {
+		depth = MaxSimDepth
+	}
+	budget := &atomic.Int64{}
+	budget.Store(recurBudget)
+
 	// Look up each candidate concurrently; collect departures.
 	departures := make([]*Departure, len(candidates))
-	predictEnabled := s.resolver != nil && s.programs != nil
-	var predictUsed atomic.Int64
 	sem := make(chan struct{}, s.workers)
 	var wg sync.WaitGroup
 	for i, cand := range candidates {
@@ -162,33 +188,8 @@ func (s *PrioritySimulator) Simulate(ctx context.Context, prog *abit.Program, ab
 		go func(i int, cand candidate) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			entries, err := s.applicants.Search(ctx, cand.ab.Name)
-			if err != nil {
-				if !errors.Is(err, abit.ErrNoData) {
-					s.log.WarnContext(ctx, "simulate lookup", "name", maskName(cand.ab.Name), "err", err)
-				}
-				return
-			}
-			// abit-poisk mixes namesakes (surname + initials only). Only trust
-			// entries we can confidently attribute to THIS candidate (anchored
-			// on their competitive score) — otherwise we'd remove a real
-			// competitor because a same-named stranger placed elsewhere.
-			same, confident := abit.SamePersonEntries(entries, cand.ab.Score)
-			if !confident {
-				return // can't confirm identity → keep them as a competitor
-			}
-			entries = same
-			// Confirmed: already recommended on a higher priority elsewhere.
-			if uni, ok := placedHigher(entries, cand.priority); ok {
-				departures[i] = &Departure{Name: cand.ab.Name, University: uni, Priority: betterPriority(entries, cand.priority)}
-				return
-			}
-			// Pre-wave: predict by fetching+ranking their higher-priority
-			// programs (bounded — each one is a resolve + program fetch).
-			if predictEnabled && predictUsed.Add(1) <= predictCap {
-				if uni, prio, ok := s.predictDeparture(ctx, entries, cand.priority); ok {
-					departures[i] = &Departure{Name: cand.ab.Name, University: uni, Priority: prio, Predicted: true}
-				}
+			if d, ok := s.leavesVia(ctx, cand.ab, cand.priority, depth, budget); ok {
+				departures[i] = &d
 			}
 		}(i, cand)
 	}
@@ -224,33 +225,49 @@ func (s *PrioritySimulator) Simulate(ctx context.Context, prog *abit.Program, ab
 	}, nil
 }
 
-// predictDeparture estimates whether a not-yet-recommended competitor will be
-// placed on one of their higher-priority programs: it resolves each
-// higher-priority application to an osvita program, fetches it, and ranks the
-// competitor (by their score there) — if they pass on any, they'll take that
-// seat instead of this one. Checks them best-priority-first and returns on the
-// first pass. ok=false when nothing resolves or none pass (conservative — no
-// guesses).
-func (s *PrioritySimulator) predictDeparture(ctx context.Context, entries []abit.ApplicantEntry, herePriority int) (string, int, bool) {
-	type higher struct {
-		uni, spec, score string
-		prio             int
+// leavesVia decides whether competitor ab will vacate their seat at the current
+// program by enrolling on one of their higher-priority (smaller number)
+// programs. It looks ab up on abit-poisk, disambiguates to that exact person,
+// and returns the Departure describing where they go.
+//
+//   - Confirmed: a higher-priority application already has a recommended/enrolled
+//     status → they hold that seat (Predicted=false).
+//   - Predicted: for each higher-priority program, ask wouldEnroll — would ab
+//     actually clear it (recursively resolving borderline cases)? First pass
+//     wins (Predicted=true).
+//
+// budget caps total abit-poisk lookups across the recursion; each call spends
+// one. depth bounds recursion. ok=false = keep them as a competitor (the safe
+// direction — we never remove on a guess).
+func (s *PrioritySimulator) leavesVia(ctx context.Context, ab abit.Abiturient, herePriority, depth int, budget *atomic.Int64) (Departure, bool) {
+	if budget.Add(-1) < 0 {
+		return Departure{}, false // out of lookup budget → conservative
 	}
-	var highs []higher
-	for _, e := range entries {
-		p, err := strconv.Atoi(strings.TrimSpace(e.Priority))
-		if err != nil || p <= 0 || p >= herePriority {
-			continue
+	entries, err := s.applicants.Search(ctx, ab.Name)
+	if err != nil {
+		if !errors.Is(err, abit.ErrNoData) {
+			s.log.WarnContext(ctx, "simulate lookup", "name", maskName(ab.Name), "err", err)
 		}
-		highs = append(highs, higher{uni: e.University, spec: e.Specialty, score: e.TotalScore, prio: p})
+		return Departure{}, false
 	}
-	sort.Slice(highs, func(i, j int) bool { return highs[i].prio < highs[j].prio })
-
-	for _, h := range highs {
-		score, err := strconv.ParseFloat(strings.TrimSpace(h.score), 64)
-		if err != nil || score <= 0 {
-			continue
-		}
+	// abit-poisk mixes namesakes (surname + initials only). Only trust entries
+	// we can confidently attribute to THIS person (anchored on their competitive
+	// score, grouped by НМТ) — otherwise we'd remove a real competitor because a
+	// same-named stranger placed elsewhere.
+	same, confident := abit.SamePersonEntries(entries, ab.Score)
+	if !confident {
+		return Departure{}, false
+	}
+	// Confirmed: already recommended/enrolled on a higher priority elsewhere.
+	if uni, ok := placedHigher(same, herePriority); ok {
+		return Departure{Name: ab.Name, University: uni, Priority: betterPriority(same, herePriority)}, true
+	}
+	// Predictive: resolve each higher-priority program and test enrolment,
+	// best-priority-first.
+	if s.resolver == nil || s.programs == nil {
+		return Departure{}, false
+	}
+	for _, h := range higherEntries(same, herePriority) {
 		url, ok := s.resolver.Resolve(ctx, h.uni, h.spec)
 		if !ok {
 			continue
@@ -259,22 +276,77 @@ func (s *PrioritySimulator) predictDeparture(ctx context.Context, entries []abit
 		if err != nil {
 			continue
 		}
-		a := abit.Analyze(prog, abit.Decode(prog), abit.AnalyzeInput{UserScore: score})
-		if isPassingChance(a.Chance) {
-			return h.uni, h.prio, true
+		if s.wouldEnroll(ctx, h.score, prog, depth, budget) {
+			return Departure{Name: ab.Name, University: h.uni, Priority: h.prio, Predicted: true}, true
 		}
 	}
-	return "", 0, false
+	return Departure{}, false
 }
 
-// isPassingChance reports whether a chance level means the applicant clears
-// the budget cutoff. The prediction ranks competitors in the GENERAL pool
-// (their quota status on the target program is unknown to us), so only
-// ChanceHigh is reachable here — the quota-pass levels need quota input we
-// don't pass, and Medium is too uncertain to act on. Erring toward "won't
-// pass" keeps the simulator from over-removing.
-func isPassingChance(c abit.ChanceLevel) bool {
-	return c == abit.ChanceHigh
+// wouldEnroll reports whether an applicant scoring `score` clears program `prog`
+// on a budget seat. A clear pass/fail returns immediately; a borderline
+// (Medium) verdict is resolved — while depth remains — by simulating who leaves
+// ABOVE this applicant here (recursion) and re-ranking. Out of depth, Medium is
+// treated as "won't pass" (conservative, so we don't over-remove).
+func (s *PrioritySimulator) wouldEnroll(ctx context.Context, score float64, prog *abit.Program, depth int, budget *atomic.Int64) bool {
+	abits := abit.Decode(prog)
+	a := abit.Analyze(prog, abits, abit.AnalyzeInput{UserScore: score})
+	switch a.Chance.Tier() {
+	case abit.TierSafety:
+		return true
+	case abit.TierReach, abit.TierNone:
+		return false
+	}
+	// Medium — resolve by removing above-competitors who themselves leave.
+	if depth <= 0 {
+		return false
+	}
+	overrides := abit.OverrideMap{}
+	checked := 0
+	for _, ab := range abits {
+		if ab.Score <= score || ab.Priority < 2 || !abit.IsCompetitor(ab, score) || isMaskedName(ab.Name) {
+			continue
+		}
+		if checked >= recurCandidateCap {
+			break
+		}
+		checked++
+		if _, ok := s.leavesVia(ctx, ab, ab.Priority, depth-1, budget); ok {
+			overrides[strconv.Itoa(ab.ID)] = false
+		}
+	}
+	if len(overrides) == 0 {
+		return false
+	}
+	refined := abit.Analyze(prog, abits, abit.AnalyzeInput{UserScore: score, Overrides: overrides})
+	return refined.Chance.Tier() == abit.TierSafety
+}
+
+// higherApp is one of an applicant's higher-priority applications, ready to
+// resolve + rank.
+type higherApp struct {
+	uni, spec string
+	score     float64
+	prio      int
+}
+
+// higherEntries extracts an applicant's strictly-higher-priority applications
+// (smaller priority number) with a usable score, sorted best-priority-first.
+func higherEntries(entries []abit.ApplicantEntry, herePriority int) []higherApp {
+	var highs []higherApp
+	for _, e := range entries {
+		p, err := strconv.Atoi(strings.TrimSpace(e.Priority))
+		if err != nil || p <= 0 || p >= herePriority {
+			continue
+		}
+		score, err := strconv.ParseFloat(strings.TrimSpace(e.TotalScore), 64)
+		if err != nil || score <= 0 {
+			continue
+		}
+		highs = append(highs, higherApp{uni: e.University, spec: e.Specialty, score: score, prio: p})
+	}
+	sort.Slice(highs, func(i, j int) bool { return highs[i].prio < highs[j].prio })
+	return highs
 }
 
 // placedHigher reports whether any of the applicant's other applications has

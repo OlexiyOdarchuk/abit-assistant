@@ -55,13 +55,15 @@
     }
   }
 
-  async function runSim() {
+  let simDeep = $state(false)
+  async function runSim(deep = false) {
     if (!result) return
+    simDeep = deep
     simLoading = true
     simError = ''
     sim = null
     try {
-      sim = await simulate(url.trim(), snapshot())
+      sim = await simulate(url.trim(), snapshot(), deep)
     } catch (e) {
       simError = e.message
     } finally {
@@ -227,7 +229,8 @@
           {inPriorities ? '🎯 У пріоритетах ✓' : '🎯 До пріоритетів'}
         </button>
         {#if result.userScore > 0 && !(an.cutoff > 0)}
-          <button onclick={runSim} disabled={simLoading}>🔮 {simLoading ? 'Уточнюю…' : 'Хто піде деінде'}</button>
+          <button onclick={() => runSim(false)} disabled={simLoading}>🔮 {simLoading && !simDeep ? 'Уточнюю…' : 'Хто піде деінде'}</button>
+          <button onclick={() => runSim(true)} disabled={simLoading} title="Рекурсивний аналіз (глибина 3) — повільніше">🔬 {simLoading && simDeep ? 'Аналізую…' : 'Глибокий аналіз'}</button>
         {/if}
         <a class="btn-link" href={result.program.url} target="_blank" rel="noreferrer">osvita ↗</a>
       </div>

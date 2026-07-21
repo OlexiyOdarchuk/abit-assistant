@@ -55,6 +55,7 @@ const (
 	btnUniqueChart            = "chart"
 	btnUniqueSaveList         = "save_list"
 	btnUniqueRefine           = "refine"          // priority simulation on the summary
+	btnUniqueRefineDeep       = "refine_deep"     // recursive (depth-3) simulation
 	btnUniqueToggleUnlikely   = "toggle_unlikely" // count priority-3+ rivals or not
 
 	// Discover ("where can I get in") flow.

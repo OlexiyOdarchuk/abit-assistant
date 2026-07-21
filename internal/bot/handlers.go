@@ -863,11 +863,15 @@ func (b *Bot) handleToggleUnlikely(c tele.Context) error {
 	return b.showSummary(c, rawURL)
 }
 
-// handleRefine runs the priority simulation for the program in the current
-// viewing state: it removes competitors who place higher elsewhere and shows
-// the refined chance. abit-poisk lookups make it slow, so it runs under the
-// search timeout with a typing indicator.
-func (b *Bot) handleRefine(c tele.Context) error {
+// handleRefine runs the (fast) priority simulation. handleRefineDeep runs the
+// recursive one. Both target the program in the current viewing state: they
+// remove competitors who place higher elsewhere and show the refined chance.
+// abit-poisk lookups make them slow, so they run under the search timeout with
+// a typing indicator.
+func (b *Bot) handleRefine(c tele.Context) error     { return b.runRefine(c, 0) }
+func (b *Bot) handleRefineDeep(c tele.Context) error { return b.runRefine(c, service.MaxSimDepth) }
+
+func (b *Bot) runRefine(c tele.Context, depth int) error {
 	rawURL, _, _, err := b.viewingState(c)
 	if err != nil {
 		return err
@@ -890,19 +894,24 @@ func (b *Bot) handleRefine(c tele.Context) error {
 	res, err := b.simSvc.Simulate(ctx, prog, abit.Decode(prog), service.SimInput{
 		UserScore:  userScore,
 		UserQuotas: settings.Quotas,
+		Depth:      depth,
 	})
 	if err != nil {
 		return fmt.Errorf("симуляція не вдалася: %w", err)
 	}
-	text, kb := buildRefineView(prog, res)
+	text, kb := buildRefineView(prog, res, depth)
 	return renderOrEdit(c, text, tele.ModeMarkdown, kb, tele.NoPreview)
 }
 
 // buildRefineView renders the priority-simulation result: baseline vs
 // refined chance, who was removed and why.
-func buildRefineView(prog *abit.Program, res service.SimResult) (string, *tele.ReplyMarkup) {
+func buildRefineView(prog *abit.Program, res service.SimResult, depth int) (string, *tele.ReplyMarkup) {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "🔮 *Уточнення шансів* — %s\n\n", mdEscape(prog.ProgramName))
+	title := "🔮 *Уточнення шансів*"
+	if depth > 0 {
+		title = "🔬 *Глибокий аналіз*"
+	}
+	fmt.Fprintf(&sb, "%s — %s\n\n", title, mdEscape(prog.ProgramName))
 
 	if len(res.Departures) == 0 {
 		sb.WriteString("Поки нікого не вдалося зняти з конкуренції: ніхто з тих, хто вище за тебе, ще не отримав рекомендацію на вищий пріоритет деінде.\n\n")
@@ -959,7 +968,14 @@ func buildRefineView(prog *abit.Program, res service.SimResult) (string, *tele.R
 	}
 
 	kb := &tele.ReplyMarkup{}
-	kb.Inline(kb.Row(kb.Data("⬅️ Назад до аналізу", btnUniqueSummary)))
+	rows := []tele.Row{}
+	// Offer the deeper, recursive pass from the fast view (it's slower, so it's
+	// opt-in). At depth>0 we're already as deep as it goes.
+	if depth == 0 {
+		rows = append(rows, kb.Row(kb.Data("🔬 Глибокий аналіз (повільніше)", btnUniqueRefineDeep)))
+	}
+	rows = append(rows, kb.Row(kb.Data("⬅️ Назад до аналізу", btnUniqueSummary)))
+	kb.Inline(rows...)
 	return sb.String(), kb
 }
 
