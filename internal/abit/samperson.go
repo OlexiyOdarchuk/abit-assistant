@@ -9,19 +9,23 @@ import (
 // SamePersonEntries disambiguates abit-poisk namesakes.
 //
 // abit-poisk indexes applicants by surname + initials only ("Мельник І. І."),
-// so a name search mixes many different people. But we always look an applicant
-// up from a known program where we know their competitive score, and every one
-// of a person's applications carries the SAME "бал документа про освіту"
-// (attestat average) while namesakes almost always differ.
+// so a name search mixes many different people. But every result row carries the
+// applicant's FULL name (ПІБ), and every one of a person's applications repeats
+// it — so the full name is a reliable person-invariant. (The old attestat
+// average is not: since 2024 admission is by НМТ only and the "бал документа про
+// освіту" is usually blank.)
 //
-// So: find the anchor entry — the one whose competitive score matches
-// anchorScore (a specific float; a namesake matching it to the milli-point is
-// vanishingly unlikely) — then keep only entries sharing its attestat average.
+// We always look an applicant up from a known program where we know their
+// competitive score, so: find the anchor entry — the one whose competitive score
+// matches anchorScore (a specific float; a namesake matching it to the
+// milli-point is vanishingly unlikely) — take its full name, and keep only
+// entries sharing it. When an attestat average IS present on both the anchor and
+// a candidate row, it's used as an extra tiebreaker (guards the rare
+// identical-full-name collision).
 //
-// confident is true only when the anchor was found AND its attestat average is
-// populated. When false, callers should NOT trust the result as "the same
-// person" (abit-poisk didn't give enough to disambiguate) — the returned slice
-// is the input unchanged so nothing is silently dropped.
+// confident is true when the anchor was found AND carries a usable full name.
+// When false, the returned slice is the input unchanged so nothing is silently
+// dropped.
 func SamePersonEntries(entries []ApplicantEntry, anchorScore float64) (out []ApplicantEntry, confident bool) {
 	if anchorScore <= 0 || len(entries) == 0 {
 		return entries, false
@@ -36,17 +40,33 @@ func SamePersonEntries(entries []ApplicantEntry, anchorScore float64) (out []App
 	if anchorIdx < 0 {
 		return entries, false // couldn't confirm which namesake is ours
 	}
-	attestat, ok := parseScore(entries[anchorIdx].EducationAvg)
-	if !ok || attestat <= 0 {
+	name := normName(entries[anchorIdx].FullName)
+	if name == "" {
 		return entries, false // no person-invariant to group by
 	}
+	anchorAtt, hasAtt := parseScore(entries[anchorIdx].EducationAvg)
+
 	out = make([]ApplicantEntry, 0, len(entries))
 	for _, e := range entries {
-		if a, ok := parseScore(e.EducationAvg); ok && math.Abs(a-attestat) < 0.005 {
-			out = append(out, e)
+		if normName(e.FullName) != name {
+			continue
 		}
+		// Same full name but a different (populated) attestat ⇒ a rare true
+		// namesake with identical ПІБ — drop it.
+		if hasAtt {
+			if a, ok := parseScore(e.EducationAvg); ok && math.Abs(a-anchorAtt) >= 0.005 {
+				continue
+			}
+		}
+		out = append(out, e)
 	}
 	return out, true
+}
+
+// normName canonicalizes a full name for comparison: trim, collapse internal
+// whitespace, lowercase.
+func normName(s string) string {
+	return strings.ToLower(strings.Join(strings.Fields(s), " "))
 }
 
 // parseScore parses an abit-poisk numeric cell ("185.500", "—", "", "0.000").
