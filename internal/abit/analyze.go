@@ -298,7 +298,11 @@ func Analyze(prog *Program, abits []Abiturient, in AnalyzeInput) Analysis {
 	// seats means everyone trivially "passes", which is near-meaningless early
 	// in a campaign (most applications land in the final days). Flag it so a
 	// confident "Проходиш" on a thin field isn't mistaken for a safe bet.
-	if out.Cutoff <= 0 && out.CompetitorsTotal < out.BudgetTotal {
+	//
+	// Skip it under ExcludeUnlikely: that view deliberately removed priority-3+
+	// rivals, so a below-seats count reflects the toggle, not a thin field —
+	// emitting the warning here would be a false "few applications" signal.
+	if out.Cutoff <= 0 && !in.ExcludeUnlikely && out.CompetitorsTotal < out.BudgetTotal {
 		out.Warnings = append(out.Warnings, "field-undersubscribed")
 	}
 

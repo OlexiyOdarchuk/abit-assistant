@@ -92,6 +92,11 @@ const (
 //     higher and frees this seat. Shown de-emphasized; the simulator still
 //     verifies before removing them from the rank.
 //   - CompetitorNone: contract/dropped, or ranks below the user.
+//
+// Quota / reserved-track holders (КВ1/КВ2/КВ3/СБ) are ALWAYS Real regardless of
+// priority: their seat is decided WITHIN the quota (or via співбесіда), not by
+// the general-pool priority cascade, so the "low priority → places higher and
+// frees this seat" logic doesn't apply — they hold a reserved seat here.
 func CompetitorTier(ab Abiturient, userScore float64) int {
 	if !IsBudgetContender(ab) {
 		return CompetitorNone
@@ -102,6 +107,9 @@ func CompetitorTier(ab Abiturient, userScore float64) int {
 	if ab.Score < userScore {
 		return CompetitorNone
 	}
+	if holdsReservedSeat(ab) {
+		return CompetitorReal
+	}
 	switch {
 	case ab.Priority <= 1: // 1 = top choice; 0 = unknown → conservative
 		return CompetitorReal
@@ -110,6 +118,16 @@ func CompetitorTier(ab Abiturient, userScore float64) int {
 	default: // priority 3+
 		return CompetitorUnlikely
 	}
+}
+
+// holdsReservedSeat reports whether the applicant is admitted on a reserved
+// track (quota or співбесіда) rather than the general NMT competition, so the
+// priority cascade doesn't move them.
+func holdsReservedSeat(ab Abiturient) bool {
+	return slices.Contains(ab.Quotas, QuotaKV1) ||
+		slices.Contains(ab.Quotas, QuotaKV2) ||
+		slices.Contains(ab.Quotas, QuotaKV3) ||
+		slices.Contains(ab.Quotas, QuotaSB)
 }
 
 // FundingFilter selects applicants by their funding type (budget vs

@@ -24,6 +24,13 @@
   let admittedUrl = $derived(
     pred && pred.admittedIndex >= 0 ? pred.items[pred.admittedIndex]?.url : null
   )
+  const CAVEAT = {
+    'field-undersubscribed': '⚠️ Заяв поки менше, ніж місць — більшість подають в останні дні, тож прохідний ще зросте. Прогноз оптимістичний.',
+    'budget-volume-is-ceiling': '⚠️ Кількість місць — це стеля держзамовлення; реальних може бути менше.',
+  }
+  let admittedCaveat = $derived(
+    (pred?.items?.[pred.admittedIndex]?.warnings ?? []).map((w) => CAVEAT[w]).filter(Boolean)[0] ?? ''
+  )
 
   async function runPredict() {
     if (!priorities.length || !profileFilled()) return
@@ -87,6 +94,7 @@
       <div class="verdict ok">
         ✅ Прогноз: проходиш за <b>пріоритетом {pred.admittedIndex + 1}</b>
         {#if pred.admittedIndex > 0}<div class="sub">вищі пріоритети поки не проходиш — вони згорять, і ти впадеш сюди</div>{/if}
+        {#if admittedCaveat}<div class="sub caveat">{admittedCaveat}</div>{/if}
       </div>
     {:else}
       <div class="verdict no">😔 За поточними даними не проходиш на жоден пріоритет. Додай запасні варіанти з нижчим прохідним.</div>
@@ -163,6 +171,7 @@
   .verdict.ok { background: color-mix(in srgb, #22c55e 14%, var(--card)); }
   .verdict.no { background: color-mix(in srgb, #ef4444 12%, var(--card)); }
   .verdict .sub { color: var(--muted); font-size: 0.8rem; margin-top: 0.25rem; }
+  .verdict .caveat { color: #b45309; }
   ol.prio { list-style: none; padding: 0; margin: 0.5rem 0; display: flex; flex-direction: column; gap: 0.5rem; }
   ol.prio li { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.7rem; background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
   ol.prio li.admitted { border-color: #22c55e; background: color-mix(in srgb, #22c55e 8%, var(--card)); }

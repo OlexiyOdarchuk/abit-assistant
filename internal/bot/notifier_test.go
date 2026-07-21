@@ -18,6 +18,12 @@ func TestChanceChanged(t *testing.T) {
 		{abit.ChanceUnknown, abit.ChanceHigh, true},   // became knowable
 		{abit.ChanceHigh, abit.ChanceUnknown, false},  // became unknown → stay quiet
 		{abit.ChanceMedium, abit.ChanceMedium, false}, // no change
+		// All High* levels mean "проходиш" — a relabel between them isn't news.
+		{abit.ChanceHigh, abit.ChanceHighQuota1, false},
+		{abit.ChanceHighQuota1, abit.ChanceHigh, false},
+		{abit.ChanceHighQuota1, abit.ChanceHighQuota2, false},
+		// But leaving the pass tier IS news.
+		{abit.ChanceHighQuota1, abit.ChanceMedium, true},
 	}
 	for _, c := range cases {
 		if got := chanceChanged(c.old, c.new); got != c.want {

@@ -117,16 +117,17 @@ type discoverResp struct {
 
 // predictItemDTO is one program in the user's ranked list, scored.
 type predictItemDTO struct {
-	URL        string  `json:"url"`
-	University string  `json:"university"`
-	Program    string  `json:"program"`
-	Score      float64 `json:"score"`
-	Fetched    bool    `json:"fetched"`
-	Chance     string  `json:"chance"`
-	ChanceTier int     `json:"chanceTier"`
-	Emoji      string  `json:"emoji"`
-	Cutoff     float64 `json:"cutoff,omitempty"`
-	Passes     bool    `json:"passes"`
+	URL        string   `json:"url"`
+	University string   `json:"university"`
+	Program    string   `json:"program"`
+	Score      float64  `json:"score"`
+	Fetched    bool     `json:"fetched"`
+	Chance     string   `json:"chance"`
+	ChanceTier int      `json:"chanceTier"`
+	Emoji      string   `json:"emoji"`
+	Cutoff     float64  `json:"cutoff,omitempty"`
+	Passes     bool     `json:"passes"`
+	Warnings   []string `json:"warnings,omitempty"`
 }
 
 func predictItemOf(o service.PriorityOutcome) predictItemDTO {
@@ -134,6 +135,7 @@ func predictItemOf(o service.PriorityOutcome) predictItemDTO {
 		URL: o.URL, University: o.University, Program: o.Program, Score: o.Score,
 		Fetched: o.Fetched, Chance: o.Analysis.Chance.Label(), ChanceTier: int(o.Analysis.Chance.Tier()),
 		Emoji: o.Analysis.Chance.Emoji(), Cutoff: o.Analysis.Cutoff, Passes: o.Passes(),
+		Warnings: o.Analysis.Warnings,
 	}
 }
 

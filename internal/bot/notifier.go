@@ -16,6 +16,12 @@ import (
 // hours, and the SourceAsOf guard makes sweeps that hit unchanged data cheap.
 const notifyInterval = 3 * time.Hour
 
+// startupSweepDelay is how long after boot the first sweep runs. Without it the
+// first notification would wait a whole interval — and on ephemeral hosting
+// that restarts/redeploys often, the ticker might never reach 3h, so nobody
+// ever gets notified. A short delay lets the process settle first.
+const startupSweepDelay = 90 * time.Second
+
 // runChangeNotifier periodically re-analyses every user's saved lists and DMs
 // them when a program's admission chance changes (e.g. 🟢 High → 🟡 Medium).
 // It turns the bot from a one-shot tool into something worth keeping open for
@@ -25,6 +31,15 @@ const notifyInterval = 3 * time.Hour
 func (b *Bot) runChangeNotifier(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = 6 * time.Hour
+	}
+	// Run an initial sweep shortly after startup, then on the interval. This
+	// makes the feature actually deliver on restart-happy hosting and testable
+	// without waiting a full interval.
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(startupSweepDelay):
+		b.sweepChanceChanges(ctx)
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -102,20 +117,25 @@ func (b *Bot) notifyUserChanges(ctx context.Context, uid int64) int {
 			b.log.WarnContext(ctx, "notifier: fetch", "err", err, "url", l.URL)
 			continue
 		}
-		// Skip when osvita hasn't re-synced from EDBO since the snapshot:
-		// same "data as of" stamp ⇒ the field can't have changed, so there's
-		// nothing to recompute or announce.
-		if fresh.SourceAsOf != "" && l.Program.SourceAsOf != "" &&
-			fresh.SourceAsOf == l.Program.SourceAsOf {
-			continue
-		}
+		// NB: we intentionally do NOT gate on osvita's "Дані отримані з ЄДЕБО"
+		// stamp. That stamp has minute granularity and osvita can reuse/cache it
+		// while the underlying table (enrolments, cutoff, competitor scores)
+		// changes — gating on it made real chance changes never fire. Recompute
+		// every sweep; the ProgramService cache keeps the fetch cheap.
 		in.UserScore = abit.ComputeRating(fresh, rating)
 		newA := abit.Analyze(fresh, abit.Decode(fresh), in)
 
+		// Degraded to "Unknown" (osvita dropped the license volume, or the score
+		// couldn't be computed): we can't say anything useful, and we must NOT
+		// overwrite the last-good snapshot — otherwise a later recovery back to a
+		// real verdict wouldn't be detected. Leave the baseline untouched.
+		if newA.Chance == abit.ChanceUnknown {
+			continue
+		}
+
 		if !chanceChanged(oldChance, newA.Chance) {
-			// No verdict change, but the snapshot advanced — refresh it so the
-			// next sweep compares against current data (and doesn't re-fetch
-			// the same delta forever).
+			// Same verdict — advance the snapshot so /lists and the next baseline
+			// track fresh data without re-announcing.
 			if err := b.store.UpdateSavedListProgram(ctx, l.ID, fresh); err != nil {
 				b.log.WarnContext(ctx, "notifier: refresh snapshot", "err", err, "list_id", l.ID)
 			}
@@ -140,10 +160,18 @@ func (b *Bot) notifyUserChanges(ctx context.Context, uid int64) int {
 }
 
 // chanceChanged reports whether a chance transition is worth telling the user
-// about: the level actually changed AND the new level is meaningful (not
-// Unknown — we don't ping someone to say we can no longer tell).
+// about: the level actually changed, the new level is meaningful (not Unknown),
+// AND it isn't a cosmetic relabel between two "you pass" levels. The three
+// High* levels (general / Quota 1 / Quota 2) all mean "проходиш", so moving
+// between them isn't news worth a DM.
 func chanceChanged(old, new abit.ChanceLevel) bool {
-	return old != new && new != abit.ChanceUnknown
+	if new == abit.ChanceUnknown || old == new {
+		return false
+	}
+	if old.Tier() == abit.TierSafety && new.Tier() == abit.TierSafety {
+		return false // High ↔ High(Quota) — same practical verdict
+	}
+	return true
 }
 
 // buildChanceChangeMessage renders the DM sent when a saved program's chance

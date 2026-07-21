@@ -155,6 +155,16 @@ func TestCompetitorTier(t *testing.T) {
 		{"above, priority 0 (unknown) → conservative", mk(181, 0, "Допущено"), CompetitorReal},
 		{"enrolled here (any priority)", mk(181, 5, "До наказу (бюджет)"), CompetitorReal},
 		{"contract", Abiturient{Score: 190, Priority: 1, StateEducation: false}, CompetitorNone},
+		{
+			"КВ1 holder priority 7 → real (holds a quota seat, priority-independent)",
+			Abiturient{Score: 181, Priority: 7, Status: "Допущено", StateEducation: true, Quotas: []string{QuotaKV1}},
+			CompetitorReal,
+		},
+		{
+			"СБ (співбесіда) holder priority 5 → real (reserved track)",
+			Abiturient{Score: 181, Priority: 5, Status: "Допущено", StateEducation: true, Quotas: []string{QuotaSB}},
+			CompetitorReal,
+		},
 	}
 	for _, c := range cases {
 		if got := CompetitorTier(c.ab, 175); got != c.want {

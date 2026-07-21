@@ -571,8 +571,10 @@ func (b *Bot) showResultsPage(c tele.Context, rawURL string, page int, mode stri
 	// previous viewing state is for the same URL.
 	prevState, _ := b.fsm.Get(ctx, uid)
 	fromDiscover := false
+	exclUnlikely := false
 	if prevState.Name == fsmStateViewing && prevState.Get(fsmKeyURL) == rawURL {
 		fromDiscover, _ = prevState.Data[fsmKeyFromDiscover].(bool)
+		exclUnlikely, _ = prevState.Data[fsmKeyExclUnlikely].(bool)
 	}
 
 	// Competitors mode degrades to "all" when we can't tell who is who.
@@ -602,6 +604,9 @@ func (b *Bot) showResultsPage(c tele.Context, rawURL string, page int, mode stri
 	}
 	if fromDiscover {
 		data[fsmKeyFromDiscover] = true
+	}
+	if exclUnlikely {
+		data[fsmKeyExclUnlikely] = true
 	}
 	if err := b.fsm.Set(context.Background(), uid, fsmStateViewing, data); err != nil {
 		b.log.Warn("fsm set failed", "err", err)

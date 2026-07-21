@@ -27,6 +27,7 @@ func (b *Bot) handlePrioritiesCB(c tele.Context) error {
 // handlePrioToggleUnlikely re-renders the prediction with the opposite
 // "count priority-3+ rivals" setting (passed in the callback arg).
 func (b *Bot) handlePrioToggleUnlikely(c tele.Context) error {
+	b.clearTransientFSM(c) // leaving the add-URL prompt behind, if any
 	excl, _ := callback.From(c).Int(0)
 	return b.renderPriorities(c, excl == 1)
 }
@@ -92,6 +93,9 @@ func buildPrioritiesView(items []storage.PriorityItem, pred service.PriorityPred
 		if pred.AdmittedIndex > 0 {
 			sb.WriteString("_Вищі пріоритети поки не проходиш — вони згорять, і ти впадеш сюди._\n")
 		}
+		if cav := prioCaveat(adm.Analysis.Warnings); cav != "" {
+			fmt.Fprintf(&sb, "%s\n", cav)
+		}
 	} else {
 		sb.WriteString("😔 *За поточними даними не проходиш на жоден пріоритет.*\nСпробуй додати запасні варіанти з нижчим прохідним балом.\n")
 	}
@@ -128,6 +132,21 @@ func buildPrioritiesView(items []storage.PriorityItem, pred service.PriorityPred
 	}
 
 	return sb.String(), prioKeyboard(len(items), exclUnlikely)
+}
+
+// prioCaveat softens an over-optimistic "проходиш" when the admitted program's
+// analysis carries a data-quality warning (thin field early in the campaign, or
+// a ceiling-only volume). Empty when the verdict is solid.
+func prioCaveat(warnings []string) string {
+	for _, w := range warnings {
+		switch w {
+		case "field-undersubscribed":
+			return "⚠️ _Але заяв поки менше, ніж місць — більшість подають в останні дні, тож прохідний ще зросте. Прогноз оптимістичний._"
+		case "budget-volume-is-ceiling":
+			return "⚠️ _Кількість місць — це стеля держзамовлення; реальних може бути менше, тож прохід не гарантований._"
+		}
+	}
+	return ""
 }
 
 // prioKeyboard builds the action rows: per-item reorder/remove, add, toggle,
@@ -181,6 +200,7 @@ func prioAddKeyboard(withBackToMenu bool) *tele.ReplyMarkup {
 
 // handlePrioAdd shows the "how to add" chooser.
 func (b *Bot) handlePrioAdd(c tele.Context) error {
+	b.clearTransientFSM(c)
 	return renderOrEdit(c, "➕ *Додати програму до пріоритетів*\n\nОбери спосіб:",
 		tele.ModeMarkdown, prioAddKeyboard(false))
 }
@@ -227,6 +247,7 @@ func (b *Bot) runPrioAddURL(c tele.Context, rawURL string) error {
 
 // handlePrioFromSaved lists the user's saved analyses as pickable buttons.
 func (b *Bot) handlePrioFromSaved(c tele.Context) error {
+	b.clearTransientFSM(c)
 	ctx, cancel := context.WithTimeout(context.Background(), listsTimeout)
 	defer cancel()
 
@@ -256,6 +277,7 @@ func (b *Bot) handlePrioFromSaved(c tele.Context) error {
 
 // handlePrioPickSaved appends the chosen saved list to the priorities.
 func (b *Bot) handlePrioPickSaved(c tele.Context) error {
+	b.clearTransientFSM(c)
 	id, ok := callback.From(c).Int64(0)
 	if !ok {
 		return errors.New("втрачено ID списку")
@@ -280,6 +302,7 @@ func (b *Bot) handlePrioPickSaved(c tele.Context) error {
 
 // handlePrioRemove drops item N from the list.
 func (b *Bot) handlePrioRemove(c tele.Context) error {
+	b.clearTransientFSM(c)
 	idx, ok := callback.From(c).Int(0)
 	if !ok {
 		return errors.New("втрачено позицію")
@@ -300,6 +323,7 @@ func (b *Bot) handlePrioUp(c tele.Context) error   { return b.movePriority(c, -1
 func (b *Bot) handlePrioDown(c tele.Context) error { return b.movePriority(c, +1) }
 
 func (b *Bot) movePriority(c tele.Context, delta int) error {
+	b.clearTransientFSM(c)
 	idx, ok := callback.From(c).Int(0)
 	if !ok {
 		return errors.New("втрачено позицію")
