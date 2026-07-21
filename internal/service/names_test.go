@@ -7,10 +7,10 @@ import (
 
 func TestIsMaskedName(t *testing.T) {
 	cases := map[string]bool{
-		"Іва### О В":   true,
-		"Бовкун О В":   false,
-		"І":            false,
-		"###":          true,
+		"Іва### О В": true,
+		"Бовкун О В": false,
+		"І":          false,
+		"###":        true,
 	}
 	for name, want := range cases {
 		if got := isMaskedName(name); got != want {

@@ -67,9 +67,9 @@ func formatInt(n int) string {
 func progWithCutoff(budgetCeiling int, cutoff float64, enrolled int) *Program {
 	return &Program{
 		Volume: map[string]string{
-			"Максимальний обсяг державного замовлення":               itoaForTest(budgetCeiling),
+			"Максимальний обсяг державного замовлення":                itoaForTest(budgetCeiling),
 			"Мінімальний рейтинговий бал серед зарахованих на бюджет": ftoaForTest(cutoff),
-			"Зараховано на бюджет всього":                            itoaForTest(enrolled),
+			"Зараховано на бюджет всього":                             itoaForTest(enrolled),
 		},
 	}
 }
@@ -234,12 +234,12 @@ func TestAnalyze_CompetitorTierCounts(t *testing.T) {
 	withPrio := func(p int) func(*Abiturient) { return func(a *Abiturient) { a.Priority = p } }
 	prog := progWithVolume(50, 0, 0)
 	abits := []Abiturient{
-		ab(1, 195, withPrio(1)),                                    // 🔴 real
-		ab(2, 190, withPrio(2)),                                    // 🟡 potential
-		ab(3, 188, withPrio(3)),                                    // ⚪ unlikely (not counted)
-		ab(4, 185, withPrio(7)),                                    // ⚪ unlikely (not counted)
+		ab(1, 195, withPrio(1)), // 🔴 real
+		ab(2, 190, withPrio(2)), // 🟡 potential
+		ab(3, 188, withPrio(3)), // ⚪ unlikely (not counted)
+		ab(4, 185, withPrio(7)), // ⚪ unlikely (not counted)
 		ab(5, 192, withPrio(5), withStatus("До наказу (бюджет)")), // 🔴 real (enrolled beats priority)
-		ab(6, 160, withPrio(1)),                                    // below me → none
+		ab(6, 160, withPrio(1)), // below me → none
 	}
 	got := Analyze(prog, abits, AnalyzeInput{UserScore: 175})
 	if got.RealCompetitors != 2 {
