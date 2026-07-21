@@ -1,6 +1,7 @@
 package abit
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -8,23 +9,23 @@ import (
 
 // SamePersonEntries disambiguates abit-poisk namesakes.
 //
-// abit-poisk indexes applicants by surname + initials only ("Мельник І. І."),
-// so a name search mixes many different people. But every result row carries the
-// applicant's FULL name (ПІБ), and every one of a person's applications repeats
-// it — so the full name is a reliable person-invariant. (The old attestat
-// average is not: since 2024 admission is by НМТ only and the "бал документа про
-// освіту" is usually blank.)
+// abit-poisk indexes applicants by surname + initials only ("Петрова В. О."),
+// so a name search mixes many different people (a search for a common name
+// returns half a dozen). But every result row carries the applicant's per-
+// subject НМТ breakdown ("Українська мова 177 Математика 167 …"), and that is
+// IDENTICAL across all of one person's applications — the reliable person-
+// invariant. (The old attestat average is not: since 2024 admission is by НМТ
+// only and the "бал документа про освіту" is blank; and the name column is just
+// surname+initials, which collide constantly.)
 //
 // We always look an applicant up from a known program where we know their
-// competitive score, so: find the anchor entry — the one whose competitive score
-// matches anchorScore (a specific float; a namesake matching it to the
-// milli-point is vanishingly unlikely) — take its full name, and keep only
-// entries sharing it. When an attestat average IS present on both the anchor and
-// a candidate row, it's used as an extra tiebreaker (guards the rare
-// identical-full-name collision).
+// competitive score, so: find the anchor entry — the one whose competitive
+// score matches anchorScore (a namesake matching it to the milli-point is
+// vanishingly unlikely) — take its person key (НМТ breakdown), and keep only
+// entries sharing it.
 //
-// confident is true when the anchor was found AND carries a usable full name.
-// When false, the returned slice is the input unchanged so nothing is silently
+// confident is true when the anchor was found AND carries a usable person key.
+// When false the returned slice is the input unchanged so nothing is silently
 // dropped.
 func SamePersonEntries(entries []ApplicantEntry, anchorScore float64) (out []ApplicantEntry, confident bool) {
 	if anchorScore <= 0 || len(entries) == 0 {
@@ -40,30 +41,48 @@ func SamePersonEntries(entries []ApplicantEntry, anchorScore float64) (out []App
 	if anchorIdx < 0 {
 		return entries, false // couldn't confirm which namesake is ours
 	}
-	name := normName(entries[anchorIdx].FullName)
-	if name == "" {
-		return entries, false // no person-invariant to group by
+	key := personKey(entries[anchorIdx])
+	if key == "" {
+		return entries, false // nothing person-invariant to group by
 	}
-	anchorAtt, hasAtt := parseScore(entries[anchorIdx].EducationAvg)
-
 	out = make([]ApplicantEntry, 0, len(entries))
 	for _, e := range entries {
-		if normName(e.FullName) != name {
-			continue
+		if personKey(e) == key {
+			out = append(out, e)
 		}
-		// Same full name but a different (populated) attestat ⇒ a rare true
-		// namesake with identical ПІБ — drop it.
-		if hasAtt {
-			if a, ok := parseScore(e.EducationAvg); ok && math.Abs(a-anchorAtt) >= 0.005 {
-				continue
-			}
-		}
-		out = append(out, e)
 	}
 	return out, true
 }
 
-// normName canonicalizes a full name for comparison: trim, collapse internal
+// personKey builds a person-invariant identity key for an abit-poisk row.
+// Primary signal: the per-subject НМТ breakdown (stable across a person's
+// applications). Fallback for older campaigns that predate it: surname+initials
+// plus the attestat average when present.
+func personKey(e ApplicantEntry) string {
+	if s := normSubjects(e.SubjectScores); s != "" {
+		return "nmt:" + s
+	}
+	name := normName(e.FullName)
+	if name == "" {
+		return ""
+	}
+	if att, ok := parseScore(e.EducationAvg); ok {
+		return fmt.Sprintf("name:%s|att:%.3f", name, att)
+	}
+	return "name:" + name
+}
+
+// normSubjects canonicalizes the НМТ breakdown for comparison. It strips the
+// trailing "РК: x.xx" (the program's regional coefficient — per-program, NOT
+// per-person), then collapses whitespace and lowercases.
+func normSubjects(s string) string {
+	if i := strings.Index(s, "РК"); i >= 0 {
+		s = s[:i]
+	}
+	return strings.ToLower(strings.Join(strings.Fields(s), " "))
+}
+
+// normName canonicalizes a name for comparison: trim, collapse internal
 // whitespace, lowercase.
 func normName(s string) string {
 	return strings.ToLower(strings.Join(strings.Fields(s), " "))

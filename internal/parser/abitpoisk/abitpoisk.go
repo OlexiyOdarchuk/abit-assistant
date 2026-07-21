@@ -155,6 +155,7 @@ func parseHTML(htmlText string) ([]abit.ApplicantEntry, error) {
 			Priority:              compact(cells.Eq(4).Text()),
 			TotalScore:            compact(cells.Eq(6).Text()),
 			EducationAvg:          compact(cells.Eq(7).Text()),
+			SubjectScores:         compact(cells.Eq(8).Text()),
 			University:            compact(cells.Eq(9).Text()),
 			Faculty:               compact(cells.Eq(10).Text()),
 			Specialty:             compact(cells.Eq(11).Text()),

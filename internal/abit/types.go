@@ -104,13 +104,19 @@ type ApplicantSubjects = map[string]SubjectScore
 // ApplicantEntry is one row from an abit-poisk search — a single application
 // of a specific applicant to a specific program.
 type ApplicantEntry struct {
-	Degree                string `json:"degree"`
-	FullName              string `json:"full_name"`
-	Status                string `json:"status"`
-	RankingNumber         string `json:"ranking_number"`
-	Priority              string `json:"priority"`
-	TotalScore            string `json:"total_score"`
-	EducationAvg          string `json:"education_avg"`
+	Degree        string `json:"degree"`
+	FullName      string `json:"full_name"`
+	Status        string `json:"status"`
+	RankingNumber string `json:"ranking_number"`
+	Priority      string `json:"priority"`
+	TotalScore    string `json:"total_score"`
+	EducationAvg  string `json:"education_avg"`
+	// SubjectScores is the applicant's per-subject НМТ breakdown as abit-poisk
+	// renders it ("Українська мова 177 Математика 167 …", sometimes with a
+	// trailing "РК: 1.07"). It is IDENTICAL across all of one person's
+	// applications, so it's the reliable person-invariant for disambiguating
+	// namesakes (surname+initials collide; the attestat is no longer submitted).
+	SubjectScores         string `json:"subject_scores"`
 	University            string `json:"university"`
 	Faculty               string `json:"faculty"`
 	Specialty             string `json:"specialty"`
