@@ -35,20 +35,9 @@ const (
 	programHost     = "vstup.osvita.ua"
 	defaultAPIURL   = "https://vstup.osvita.ua/api/"
 	defaultPageSize = 500
-	// defaultWorkers is 1 — sequential pagination, matching the browser and the
-	// Python original. osvita's app rate-limits per IP and answers "Error 300 /
-	// Перезавантажте" to bursty traffic; the previous 8-worker fan-out tripped
-	// that on the very first program and returned 0 applicants. A single lane
-	// (0, 500, 1000, …) stays under the radar; big programs are only a handful
-	// of pages, so the latency cost is small.
-	defaultWorkers = 1
-	defaultTimeout = 60 * time.Second
-	defaultRetries = 3
-
-	// browserUA makes our requests look like a real browser. osvita gates the
-	// applicant API behind a Cloudflare managed challenge that flags obvious
-	// bots (the Go default "Go-http-client/1.1" UA among them).
-	browserUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+	defaultWorkers  = 8
+	defaultTimeout  = 60 * time.Second
+	defaultRetries  = 3
 
 	// maxRequests caps how many applicant rows a single Parse will
 	// accumulate. Real programs top out at a few thousand; this is ~100x
@@ -107,8 +96,8 @@ func New(opts ...Option) *Parser {
 	// fails fast (short-circuiting the retry loop) once the host starts
 	// returning 429/5xx. Applied last so it wraps any custom transport.
 	p.client.Transport = httpx.NewGate(p.client.Transport, httpx.Limits{
-		RPS:           4, // gentle — osvita rate-flags bursty traffic with "Error 300"
-		Burst:         2,
+		RPS:           12,
+		Burst:         defaultWorkers,
 		FailThreshold: 8,
 		OpenFor:       15 * time.Second,
 	})
@@ -133,7 +122,7 @@ func (p *Parser) Parse(ctx context.Context, programURL string) (*abit.Program, e
 		return nil, fmt.Errorf("osvita: static page: %w", err)
 	}
 
-	if err := p.fanOut(ctx, prog, programURL, sid, uid, year); err != nil {
+	if err := p.fanOut(ctx, prog, sid, uid, year); err != nil {
 		return nil, fmt.Errorf("osvita: requests: %w", err)
 	}
 	return prog, nil
@@ -169,7 +158,7 @@ func parseProgramURL(rawURL string) (sid, uid, year string, err error) {
 //
 // On the first hard error a worker records it and cancels the shared
 // context, so sibling lanes stop promptly instead of hammering osvita.
-func (p *Parser) fanOut(ctx context.Context, prog *abit.Program, referer, sid, uid, year string) error {
+func (p *Parser) fanOut(ctx context.Context, prog *abit.Program, sid, uid, year string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -183,7 +172,7 @@ func (p *Parser) fanOut(ctx context.Context, prog *abit.Program, referer, sid, u
 
 	// Warm-up: osvita.ua frequently returns an empty body to a "cold"
 	// session, so prime the cookie jar with one throwaway request.
-	_, _ = p.fetchJSONURL(ctx, formValues(year, sid, uid, 0), referer)
+	_, _ = p.fetchJSONURL(ctx, formValues(year, sid, uid, 0))
 
 	for w := 0; w < p.workers; w++ {
 		wg.Add(1)
@@ -194,7 +183,7 @@ func (p *Parser) fanOut(ctx context.Context, prog *abit.Program, referer, sid, u
 				if ctx.Err() != nil {
 					return
 				}
-				chunk, err := p.fetchChunk(ctx, referer, sid, uid, year, offset)
+				chunk, err := p.fetchChunk(ctx, sid, uid, year, offset)
 				if err != nil {
 					// A cancellation triggered by a sibling's error isn't a
 					// new failure — don't overwrite the real firstErr with it.
@@ -280,12 +269,12 @@ var errEmptyURL = errors.New("osvita: empty url response")
 
 // fetchChunk runs the two-step API dance: POST to get a signed JSON URL,
 // then GET that URL.
-func (p *Parser) fetchChunk(ctx context.Context, referer, sid, uid, year string, last int) (*rawChunk, error) {
+func (p *Parser) fetchChunk(ctx context.Context, sid, uid, year string, last int) (*rawChunk, error) {
 	form := formValues(year, sid, uid, last)
 
 	var jsonURL string
 	err := p.retry(ctx, func() error {
-		u, err := p.fetchJSONURL(ctx, form, referer)
+		u, err := p.fetchJSONURL(ctx, form)
 		if err != nil {
 			return err
 		}
@@ -317,20 +306,12 @@ func (p *Parser) fetchChunk(ctx context.Context, referer, sid, uid, year string,
 	return chunk, nil
 }
 
-func (p *Parser) fetchJSONURL(ctx context.Context, form url.Values, referer string) (string, error) {
+func (p *Parser) fetchJSONURL(ctx context.Context, form url.Values) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.apiURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	// Look like the page's own AJAX call so osvita's anti-bot lets us through.
-	setBrowserHeaders(req)
-	req.Header.Set("Accept", "application/json, text/javascript, */*; q=0.01")
-	req.Header.Set("X-Requested-With", "XMLHttpRequest")
-	if referer != "" {
-		req.Header.Set("Referer", referer)
-		req.Header.Set("Origin", "https://"+programHost)
-	}
 
 	resp, err := p.client.Do(req)
 	if err != nil {
@@ -373,18 +354,11 @@ func firstNonEmpty(a, b string) string {
 	return b
 }
 
-// setBrowserHeaders makes a request look like it came from a real browser.
-func setBrowserHeaders(req *http.Request) {
-	req.Header.Set("User-Agent", browserUA)
-	req.Header.Set("Accept-Language", "uk-UA,uk;q=0.9,en;q=0.8")
-}
-
 func (p *Parser) fetchPayload(ctx context.Context, jsonURL string) (*rawChunk, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jsonURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	setBrowserHeaders(req)
 	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -451,8 +425,6 @@ func (p *Parser) fetchStatic(ctx context.Context, programURL string) (*abit.Prog
 	if err != nil {
 		return nil, err
 	}
-	setBrowserHeaders(req)
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, err

@@ -56,7 +56,7 @@ func TestFanOut_RetriesFlakyEmptyURL(t *testing.T) {
 
 	p := New(WithAPIURL(srv.URL), WithWorkers(2), WithPageSize(pg), WithMaxRetries(3))
 	prog := &abit.Program{}
-	if err := p.fanOut(context.Background(), prog, srv.URL, "sid", "uid", "2025"); err != nil {
+	if err := p.fanOut(context.Background(), prog, "sid", "uid", "2025"); err != nil {
 		t.Fatalf("fanOut: %v", err)
 	}
 	if len(prog.Requests) != total {
