@@ -109,9 +109,16 @@
       })
   }
 
-  // auto-run if we arrived with a URL (e.g. from Discover)
+  // auto-run ONCE if we arrived with a URL (e.g. from Discover). The guard is a
+  // plain (non-reactive) flag: if run() errors, `result` stays null, and a
+  // condition that re-checked !result would re-fire the effect forever —
+  // hammering the server (that infinite retry took the origin down with 502s).
+  let autoRan = false
   $effect(() => {
-    if (initialUrl && !result && !loading) run()
+    if (initialUrl && !autoRan) {
+      autoRan = true
+      run()
+    }
   })
 
   // "Рахувати пріоритет 3+ як конкурентів" — true keeps the conservative

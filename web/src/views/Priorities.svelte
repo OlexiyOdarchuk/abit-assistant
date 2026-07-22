@@ -68,10 +68,16 @@
   function remove(i) { removePriority(i); stale = true; if (!priorities.length) pred = null }
   function move(i, d) { movePriority(i, d); stale = true }
 
+  // Auto-compute ONCE on first load. NOT on `!pred`: if runPredict errors, pred
+  // stays null and the effect would re-fire forever, hammering the server. The
+  // toggle re-runs via its own onchange; list edits set `stale` for a manual
+  // "Оновити прогноз".
+  let autoRan = false
   $effect(() => {
-    // first render / toggle change → (re)compute; list edits only mark stale
-    countUnlikely
-    if (priorities.length && profileFilled() && !pred && !loading) runPredict()
+    if (priorities.length && profileFilled() && !autoRan) {
+      autoRan = true
+      runPredict()
+    }
   })
 
   let addable = $derived(lists.filter((l) => !hasPriority(l.url)))
