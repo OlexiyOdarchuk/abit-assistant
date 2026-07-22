@@ -35,9 +35,16 @@ const (
 	programHost     = "vstup.osvita.ua"
 	defaultAPIURL   = "https://vstup.osvita.ua/api/"
 	defaultPageSize = 500
-	defaultWorkers  = 8
-	defaultTimeout  = 60 * time.Second
-	defaultRetries  = 3
+	// defaultWorkers is 1 — sequential pagination (0, 500, 1000, …), like the
+	// browser and the Python original. osvita's anti-bot flags bursty traffic
+	// with "Error 300"; the old 8-worker fan-out fired 8 concurrent POSTs on the
+	// very first program, which looks like a scraper and got rejected. A single
+	// gentle lane has the best chance of passing on a clean IP. (We keep the Go
+	// User-Agent, NOT a browser one — a browser UA made Cloudflare serve a JS
+	// challenge that HANGS the connection instead of failing fast.)
+	defaultWorkers = 1
+	defaultTimeout = 60 * time.Second
+	defaultRetries = 3
 
 	// maxRequests caps how many applicant rows a single Parse will
 	// accumulate. Real programs top out at a few thousand; this is ~100x
@@ -96,8 +103,8 @@ func New(opts ...Option) *Parser {
 	// fails fast (short-circuiting the retry loop) once the host starts
 	// returning 429/5xx. Applied last so it wraps any custom transport.
 	p.client.Transport = httpx.NewGate(p.client.Transport, httpx.Limits{
-		RPS:           12,
-		Burst:         defaultWorkers,
+		RPS:           4, // gentle — osvita rate-flags bursty traffic with "Error 300"
+		Burst:         2,
 		FailThreshold: 8,
 		OpenFor:       15 * time.Second,
 	})
