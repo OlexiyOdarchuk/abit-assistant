@@ -322,7 +322,9 @@ func (p *Parser) fetchJSONURL(ctx context.Context, form url.Values) (string, err
 		return "", err
 	}
 	var out struct {
-		URL string `json:"url"`
+		URL   string `json:"url"`
+		Msg   string `json:"msg"`
+		Error string `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		if errors.Is(err, io.EOF) {
@@ -330,7 +332,26 @@ func (p *Parser) fetchJSONURL(ctx context.Context, form url.Values) (string, err
 		}
 		return "", err
 	}
+	// osvita gates the applicant API behind a Cloudflare Turnstile challenge
+	// (2026): without a valid `token` it answers {"msg"/"error":"Перезавантажте
+	// сторінку! Error 300"} instead of a data url. Surface this loudly — silently
+	// returning an empty program would make the whole analysis lie ("ти перший").
+	if out.URL == "" && (out.Msg != "" || out.Error != "") {
+		return "", fmt.Errorf("%w: %s", errChallenge, firstNonEmpty(out.Msg, out.Error))
+	}
 	return out.URL, nil
+}
+
+// errChallenge marks osvita's anti-bot (Cloudflare Turnstile) rejection — the
+// API needs a Turnstile token we don't have. Not retriable: retrying without a
+// token only hammers the challenge.
+var errChallenge = errors.New("osvita: заблоковано анти-ботом (Cloudflare Turnstile) — потрібен токен")
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 func (p *Parser) fetchPayload(ctx context.Context, jsonURL string) (*rawChunk, error) {
