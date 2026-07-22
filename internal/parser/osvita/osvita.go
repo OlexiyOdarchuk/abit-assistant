@@ -259,6 +259,14 @@ func (s *rawSubjects) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// errEmptyURL marks osvita's flaky "first POST for an offset returns no url"
+// quirk (the Python original worked around it by POSTing twice per page). It is
+// retriable — a later attempt at the SAME offset usually yields the url — but
+// if every attempt comes back empty we treat that offset as the true end of the
+// applicant list. Without the retry, a single flaky empty truncated the lane and
+// silently dropped every applicant past the first 500.
+var errEmptyURL = errors.New("osvita: empty url response")
+
 // fetchChunk runs the two-step API dance: POST to get a signed JSON URL,
 // then GET that URL.
 func (p *Parser) fetchChunk(ctx context.Context, sid, uid, year string, last int) (*rawChunk, error) {
@@ -270,14 +278,17 @@ func (p *Parser) fetchChunk(ctx context.Context, sid, uid, year string, last int
 		if err != nil {
 			return err
 		}
+		if u == "" {
+			return errEmptyURL // flaky first POST — retry the same offset
+		}
 		jsonURL = u
 		return nil
 	})
+	if errors.Is(err, errEmptyURL) {
+		return &rawChunk{}, nil // genuinely empty after every retry → end of lane
+	}
 	if err != nil {
 		return nil, err
-	}
-	if jsonURL == "" {
-		return &rawChunk{}, nil
 	}
 
 	var chunk *rawChunk
@@ -365,7 +376,7 @@ func (p *Parser) retry(ctx context.Context, fn func() error) error {
 			return nil
 		}
 		var r retriableError
-		if !errors.As(err, &r) {
+		if !errors.As(err, &r) && !errors.Is(err, errEmptyURL) {
 			return err
 		}
 		select {
