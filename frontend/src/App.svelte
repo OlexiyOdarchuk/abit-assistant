@@ -1,5 +1,6 @@
 <script>
   import { persist, ui } from './lib/state.svelte.js'
+  import WindowControls from './lib/WindowControls.svelte'
   import Onboarding from './views/Onboarding.svelte'
   import Home from './views/Home.svelte'
   import Analyze from './views/Analyze.svelte'
@@ -7,6 +8,7 @@
   import Discover from './views/Discover.svelte'
   import Profile from './views/Profile.svelte'
   import Lists from './views/Lists.svelte'
+  import Help from './views/Help.svelte'
 
   persist() // wire localStorage saves
 
@@ -17,7 +19,7 @@
   }
 
   let route = $state(parse())
-  const onHash = () => (route = parse())
+  const onHash = () => ((route = parse()), (menuOpen = false))
   $effect(() => {
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
@@ -30,6 +32,17 @@
     try {
       localStorage.setItem('theme', dark ? 'dark' : 'light')
     } catch (e) {}
+  }
+
+  let menuOpen = $state(false)
+
+  function resetAll() {
+    if (!confirm('Скинути профіль, збережені списки та історію? Дію не скасувати.')) return
+    try {
+      for (const k of Object.keys(localStorage)) if (k.startsWith('aa.')) localStorage.removeItem(k)
+    } catch (e) {}
+    location.hash = '#/home'
+    location.reload()
   }
 
   const nav = [
@@ -48,11 +61,13 @@
   ]
 </script>
 
+<WindowControls />
+
 {#if !ui.onboarded}
   <!-- mandatory profile gate: nothing else until the profile is filled -->
   <header class="topbar minimal">
     <span class="brand"><span class="mark">🎓</span> AbitAssistant</span>
-    <button class="theme" onclick={toggleTheme} aria-label="Тема">{dark ? '☀' : '☾'}</button>
+    <button class="icon-btn" onclick={toggleTheme} aria-label="Тема">{dark ? '☀' : '☾'}</button>
   </header>
   <Onboarding />
 {:else}
@@ -64,9 +79,35 @@
           <a href="#/{n.id}" class:active={route.name === n.id}>{n.label}</a>
         {/each}
       </nav>
-      <button class="theme" onclick={toggleTheme} title="Тема" aria-label="Перемкнути тему">
-        {dark ? '☀' : '☾'}
-      </button>
+      <div class="actions">
+        <button class="icon-btn" onclick={toggleTheme} title="Тема" aria-label="Перемкнути тему">
+          {dark ? '☀' : '☾'}
+        </button>
+        <div class="menu-wrap">
+          <button
+            class="icon-btn"
+            class:open={menuOpen}
+            onclick={() => (menuOpen = !menuOpen)}
+            title="Меню"
+            aria-label="Меню"
+            aria-expanded={menuOpen}>⋯</button
+          >
+          {#if menuOpen}
+            <button class="menu-backdrop" onclick={() => (menuOpen = false)} aria-label="Закрити меню"></button>
+            <div class="menu" role="menu">
+              <a href="#/profile" role="menuitem"><span>👤</span> Профіль</a>
+              <a href="#/help" role="menuitem"><span>❓</span> Як користуватися</a>
+              <div class="sep"></div>
+              <a href="https://t.me/AbitAssistant_bot" target="_blank" rel="noreferrer" role="menuitem"
+                ><span>✈️</span> Бот у Telegram</a>
+              <a href="https://vstup.osvita.ua" target="_blank" rel="noreferrer" role="menuitem"
+                ><span>🌐</span> vstup.osvita.ua</a>
+              <div class="sep"></div>
+              <button class="danger" onclick={resetAll} role="menuitem"><span>🗑</span> Скинути дані</button>
+            </div>
+          {/if}
+        </div>
+      </div>
     </header>
 
     <main>
@@ -76,6 +117,8 @@
         <Priorities />
       {:else if route.name === 'profile'}
         <Profile />
+      {:else if route.name === 'help'}
+        <Help />
       {:else if route.name === 'lists'}
         <Lists />
       {:else if route.name === 'analyze'}
@@ -89,7 +132,7 @@
 
     <footer>
       Дані: vstup.osvita.ua · abit-poisk.org.ua ·
-      <a href="https://t.me/AbitAssistant_bot" target="_blank" rel="noreferrer">бот у Telegram</a>
+      <a href="#/help">як це працює</a>
     </footer>
 
     <nav class="bottom">
@@ -129,9 +172,11 @@
     text-decoration: none;
   }
   .brand .mark { color: var(--accent); }
-  .theme {
+  .actions { display: flex; align-items: center; gap: 0.4rem; }
+  .icon-btn {
     border: 1.5px solid var(--border);
     background: var(--card);
+    color: var(--text);
     border-radius: 10px;
     width: 2.2rem;
     height: 2.2rem;
@@ -139,7 +184,59 @@
     font-size: 1rem;
     line-height: 1;
     cursor: pointer;
+    display: grid;
+    place-items: center;
+    transition: border-color 0.15s, background 0.15s;
   }
+  .icon-btn:hover { border-color: var(--accent); }
+  .icon-btn.open { border-color: var(--accent); color: var(--accent); }
+
+  .menu-wrap { position: relative; }
+  .menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: transparent;
+    border: 0;
+    cursor: default;
+  }
+  .menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.5rem);
+    z-index: 50;
+    min-width: 220px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-ctrl);
+    box-shadow: var(--shadow-lift);
+    padding: 0.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    animation: pop 0.14s ease both;
+  }
+  @keyframes pop { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
+  .menu a, .menu button {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.55rem 0.7rem;
+    border-radius: 9px;
+    text-decoration: none;
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    font-size: 0.92rem;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    text-align: left;
+  }
+  .menu a:hover, .menu button:hover { background: var(--hover); }
+  .menu button.danger { color: var(--reach); }
+  .menu .sep { height: 1px; background: var(--border); margin: 0.3rem 0.2rem; }
+
   nav { display: flex; gap: 0.15rem; flex-wrap: wrap; }
   nav a {
     position: relative;

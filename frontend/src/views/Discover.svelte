@@ -4,14 +4,15 @@
   import { tierColor } from '../lib/chance.js'
   import Chance from '../lib/Chance.svelte'
   import Loading from '../lib/Loading.svelte'
+  import { fetchPhrases, isDesktop } from '../lib/desktop.js'
 
-  const discoverPhrases = [
+  const discoverPhrases = fetchPhrases([
     'Шукаю програми за фільтром…',
     'Тягну дані кожної програми…',
     'Рахую твої шанси на кожній…',
     'Сортую за шансом на бюджет…',
     'Майже готово…',
-  ]
+  ])
 
   let filters = $state(null)
   let filtersErr = $state('')
@@ -142,6 +143,10 @@
 
   {#if error}<p class="error">⚠️ {error}</p>{/if}
 
+  {#if isDesktop && !loading && !result}
+    <p class="dt-note">⏳ На десктопі підбір повільний — кожна програма відкриває браузер (~20с). Почни з невеликого ліміту й дай браузеру пройти перевірку.</p>
+  {/if}
+
   {#if loading}<Loading phrases={discoverPhrases} />{/if}
 
   {#if result}
@@ -188,6 +193,16 @@
   .hint { color: var(--muted); font-size: 0.9rem; }
   .error { color: #dc2626; }
   .muted { color: var(--muted); }
+  .dt-note {
+    color: var(--muted);
+    font-size: 0.85rem;
+    line-height: 1.45;
+    background: var(--match-soft);
+    border: 1px solid color-mix(in srgb, var(--match) 30%, transparent);
+    border-radius: var(--r-ctrl);
+    padding: 0.7rem 0.9rem;
+    margin: 0.6rem 0 0;
+  }
   .controls { display: flex; flex-direction: column; gap: 1rem; }
   .field { display: flex; flex-direction: column; gap: 0.4rem; }
   .field > span { font-weight: 600; font-size: 0.9rem; }

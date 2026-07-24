@@ -29,6 +29,9 @@ func main() {
 		Height:    820,
 		MinWidth:  900,
 		MinHeight: 640,
+		// Frameless: the app draws its own title bar (lib/WindowControls.svelte)
+		// for a native-desktop feel. The web build ignores this entirely.
+		Frameless: true,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

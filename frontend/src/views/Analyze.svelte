@@ -8,20 +8,21 @@
   import Loading from '../lib/Loading.svelte'
   import Histogram from '../lib/Histogram.svelte'
   import ChanceLegend from '../lib/ChanceLegend.svelte'
+  import { fetchPhrases, captchaHint, isDesktop } from '../lib/desktop.js'
 
-  const analyzePhrases = [
+  const analyzePhrases = fetchPhrases([
     'Відкриваю сторінку програми…',
     'Тягну список заяв з osvita…',
     'Рахую реальних конкурентів…',
     'Визначаю твоє місце і шанс…',
     'Майже готово…',
-  ]
-  const simPhrases = [
+  ])
+  const simPhrases = fetchPhrases([
     'Дивлюсь, хто куди ще подався…',
     'Перевіряю abit-poisk…',
     'Хто проходить на вищий пріоритет деінде…',
     'Перераховую твої шанси…',
-  ]
+  ])
 
   let { initialUrl = '' } = $props()
 
@@ -160,6 +161,10 @@
     <p class="hint">⚠️ Заповни <a href="#/profile">профіль</a> (бали НМТ), щоб бачити шанси — без нього лише список.</p>
   {/if}
 
+  {#if isDesktop && !result && !loading}
+    <p class="browser-note">🌐 {captchaHint}</p>
+  {/if}
+
   {#if error}<p class="error">⚠️ {error}</p>{/if}
 
   {#if loading}<Loading phrases={analyzePhrases} />{/if}
@@ -281,6 +286,16 @@
   .search { display: flex; gap: 0.6rem; margin: 1rem 0; }
   .search input { flex: 1; }
   .hint { color: var(--muted); font-size: 0.9rem; }
+  .browser-note {
+    color: var(--muted);
+    font-size: 0.85rem;
+    line-height: 1.45;
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+    border-radius: var(--r-ctrl);
+    padding: 0.7rem 0.9rem;
+    margin: 0.6rem 0 0;
+  }
   .error { color: #dc2626; }
   .prog h2 { margin: 0 0 0.2rem; }
   .subtitle { color: var(--muted); margin: 0 0 1rem; }

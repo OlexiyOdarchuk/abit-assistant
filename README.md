@@ -1,207 +1,111 @@
-# AbitAssistant 3.0
+# 🎓 AbitAssistant
 
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html)
 [![Go 1.26+](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go)](https://go.dev/)
+[![Wails](https://img.shields.io/badge/Desktop-Wails%20v2-DF0000)](https://wails.io/)
 [![Telegram Bot](https://img.shields.io/badge/🤖%20Telegram-Bot-blue?logo=telegram)](https://t.me/AbitAssistant_bot)
 [![Made in Ukraine](https://img.shields.io/badge/Made%20with%20❤️-in%20Ukraine-ffd700)](https://t.me/NeShawyha)
 
-> ## ⚠️ Проєкт тимчасово не працює
->
-> **Станом на 23.07.2026 `vstup.osvita.ua` заблокував автоматичний доступ до конкурсних списків поточного року (вступ-2026).** API заяв тепер закрите **Cloudflare Turnstile** — без валідного токена, який видається лише живому браузеру, сайт повертає `Error 300 / Перезавантажте сторінку`. Архівні роки (2025 і раніше) лишаються відкритими.
->
-> Через це **аналіз, підбір і прогноз за поточною кампанією недоступні** — застосунок фізично не може отримати живі дані заяв. Це блокування **на боці джерела**, а не помилка коду: той самий код нормально тягне торішні дані.
->
-> Пробували обійти (послідовний ніжний парс, браузерні заголовки, headless-Chromium через chromedp) — Turnstile жорстко ловить автоматизацію. Реальні варіанти на майбутнє: solver-сервіс Turnstile, або перехід на офіційний реєстр [ЄДЕБО](https://registry.edbo.gov.ua/). До того часу проєкт **на паузі**.
+> Реальні шанси на вступ для абітурієнтів України — на основі **живої черги заяв**, а не здогадок. Тягне конкурсні списки з [vstup.osvita.ua](https://vstup.osvita.ua), рахує твій конкурсний бал, показує шанс на бюджет і хто твої справжні конкуренти.
 
-> Бот для абітурієнтів України. Тягне конкурсні списки з [vstup.osvita.ua](https://vstup.osvita.ua), показує реальних конкурентів на бюджет, рахує твій рейтинговий бал.
+Один рушій (чисте Go) під двома оболонками:
 
-## 🔁 Версії
+- 🖥️ **Desktop-застосунок** (Wails + Svelte) — рекомендовано. Проходить Cloudflare-захист osvita через справжній браузер у тебе на компʼютері, рахує все локально. Нічого хостити не треба.
+- ☁️ **Сервер** (Telegram-бот + веб) — для масового доступу з телефонів.
 
-Це Go-переписування Python-бота [**AbitAssistant_Bot 2.x**](https://github.com/OlexiyOdarchuk/AbitAssistant_Bot) (попередня версія, переходить в архів). Ідея та сама — реалізація нова:
+---
 
-| | Python 2.x | Go 3.0 |
-|---|---|---|
-| Архітектура | моноліт `app/` | Шари: `cmd/` (wiring) + `internal/` (домен, парсери, сервіси, бот) |
-| SQLite | n/a (PostgreSQL) | pure-Go `modernc.org/sqlite`, без CGo |
-| FSM | aiogram, in-memory | Persistent у SQLite — переживає рестарт |
-| Callback handling | `data.split("_")` | Typed args + `Btn.Unique` |
-| UX | reply + inline keyboards mix | all-inline, edit-in-place |
-| Тести | — | 70+ unit-тестів |
-| Docker | python:slim ~400MB | scratch ~30MB (план) |
-| Конкурент-фільтр | sync + Selenium fallback | concurrent-safe, готовий до enrich через abit-poisk |
+## 🧠 Як це працює
+
+З 2026 року `vstup.osvita.ua` за Cloudflare Turnstile: прямі запити отримують `403`, а API заяв вимагає одноразовий токен, який видає лише живий браузер. Headless-автоматизацію Cloudflare детектить і блокує.
+
+**Рішення desktop-застосунку:** він відкриває **справжній Chrome** у тебе на машині. Для Cloudflare це звичайний відвідувач, тому перевірка проходить; якщо зʼявляється «я не робот» — ти клікаєш її сам, як на будь-якому сайті. За **один запуск** браузер зчитує і сторінку програми, і всю чергу заяв, після чого:
+
+1. Весь **аналіз рахується локально** (`internal/abit`, `internal/service`) — бал, прохідні, симуляція пріоритетів.
+2. Результат кешується в локальний **SQLite** (`~/.config/AbitAssistant/cache.db`).
+3. Профіль живе лише в застосунку — нікуди не надсилається.
+
+Перший запит по програмі ~20 секунд (браузеру треба відкритись і пройти перевірку), далі — миттєво з кешу.
+
+## ✨ Можливості
+
+| | |
+|---|---|
+| 🔎 **Аналіз** | Твоє місце в черзі на програму: бал, шанс на бюджет, список конкурентів із їхніми пріоритетами та розкладкою НМТ. |
+| 🎯 **Прогноз** | Розстав програми за пріоритетом — застосунок передбачить, куди саме ти вступиш (рекурсивна симуляція «хто куди піде»). |
+| 🧭 **Куди вступлю** | Пошук по галузі та регіону: де твій бал прохідний на бюджет. |
+| 💾 **Збережені** | Обрані програми та історія переглядів. |
+
+Темна/світла тема, мобільний веб-режим, усе українською.
+
+## 🚀 Встановлення
+
+### Desktop (готові збірки)
+
+Завантаж бінарник під свою систему зі сторінки [**Releases**](https://github.com/OlexiyOdarchuk/abit-assistant/releases): Windows (`.exe` / інсталятор), macOS (`.dmg`), Linux (`.deb` / `.rpm` / бінарник). Потрібен встановлений **Chrome / Chromium / Edge** (застосунок відкриває його для доступу до osvita).
+
+### Desktop (збірка з коду)
+
+```bash
+# потрібні: Go 1.26+, Node 22+, wails CLI, а на Linux — libwebkit2gtk-4.1-dev
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+task dev      # запуск у dev-режимі (hot reload)
+task build    # зібрати бінарник у build/bin/
+```
+
+> **Linux:** збірка йде з тегом `webkit2_41` (див. `Taskfile.yml`) — сучасні дистрибутиви мають `webkit2gtk-4.1`, а не застарілий `4.0`. Тег інертний на Windows/macOS.
+
+## ☁️ Серверний режим (бот + веб)
+
+Той самий домен, але дані тягне сервер (потрібен браузерний сайдкар для Cloudflare — див. `docker-compose.yml`).
+
+```bash
+docker compose up -d          # postgres + застосунок (+ chromium-сайдкар)
+docker compose logs -f app
+```
+
+Env: `DATABASE_URL` (обовʼязково), `TELEGRAM_TOKEN` (вмикає бота), `HTTP_ADDR` (веб, `:8080`), `OSVITA_BROWSER_URL` (CDP-ендпоінт браузерного сайдкара).
 
 ## 📐 Архітектура
 
 ```
-cmd/                  Точки входу (тільки wiring)
-  bot/                  Telegram бот
-  cli/                  Dev CLI
-
-internal/             Уся реалізація (один застосунок, не публічна бібліотека)
-  abit/                 Доменна модель: типи, decoder, filter, stats, calculator, links, analyze
-  parser/               Інтерфейс Source + реалізації
-    osvita/               vstup.osvita.ua (JSON API + JS-vars + /spec/ browse)
-    abitpoisk/            abit-poisk.org.ua (пошук конкретного абітурієнта)
-  bot/                  Telegram handlers, FSM, callback codec, middleware
-    callback/             Typed args для callback_data
-    fsm/                  Persistent FSM поверх SQLite
-  service/              Use cases: Program, Applicant, Enrich, Discover
-  storage/              SQLite + sqlc-generated queries + embed migrations
-    migrations/           SQL schema
-    queries/              SQL queries (sqlc input)
-    db/                   sqlc output (не редагувати)
-  config/               env loader + .env
-  visualizer/           go-chart/v2 PNG гістограма
-  edbo/                 AES-CBC дешифрування ПІБ з vstup.edbo.gov.ua (експериментально)
+main.go, app.go        Desktop-оболонка (Wails): вікно + байндинги над Core
+cmd/                   Серверні входи: app (бот+веб), bot, web, cli
+  osvitacheck/           Валідатор браузерного фетчу проти живої osvita
+internal/
+  abit/                  Домен: скоринг, аналіз, симуляція (чисте Go)
+  apidto/                Спільний JSON-контракт для web + desktop
+  service/               Use-cases (program/discover/simulate/predict)
+  desktop/               Core-facade + локальний SQLite-кеш
+  parser/
+    osvita/                Парсер + інтерфейси фетчерів (403 → браузер)
+    osvitabrowser/         chromedp-драйвер: single-shot фетч крізь Turnstile
+    abitpoisk/             Крос-довідка заяв абітурієнта
+  web/                   HTTP API + вбудований SPA (серверний режим)
+  bot/, storage/, httpx/, visualizer/
+frontend/              Svelte 5 + Vite (спільний UI обох оболонок)
 ```
 
-> **Чому все в `internal/`, а не `pkg/`:** один модуль = один застосунок,
-> зовнішнього споживача немає. Доменне ядро `internal/abit` — чисте й
-> presentation-agnostic, тож бот, CLI і майбутній веб-фронт компонують його
-> однаково (всі живуть у тому ж модулі). Виставляти крихкі скрейпери як
-> публічний `go get` API сенсу не мало.
+`internal/parser/osvitabrowser` — серце обходу Cloudflare: один запуск браузера читає HTML сторінки (`document.documentElement.outerHTML` після розвʼязаної капчі) + пагінує API заяв, реюзаючи щойно-отриманий токен і ретраячи на post-captcha reload. Драйвери реалізують `osvita.ProgramDataFetcher`.
 
-## 📐 Як компонується доменне ядро
-
-`internal/abit` — pure, без I/O. Приклад потоку (так само його кличе і бот, і
-майбутній веб):
-
-```go
-import (
-    "context"
-    "github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
-    "github.com/OlexiyOdarchuk/abit-assistant/internal/parser/osvita"
-    "github.com/OlexiyOdarchuk/abit-assistant/internal/parser/abitpoisk"
-)
-
-ctx := context.Background()
-
-// 1. Парсимо програму
-p := osvita.New()
-prog, err := p.Parse(ctx, "https://vstup.osvita.ua/y2025/r14/282/1471029/")
-
-// 2. Декодуємо у []Abiturient (статуси, квоти, коеф, calc-link, abit-link)
-abits := abit.Decode(prog)
-
-// 3. Рахуємо власний рейтинговий бал
-rating := abit.ComputeRating(prog, abit.RatingInput{
-    NMT: map[string]float64{
-        "Українська мова":  180,
-        "Математика":       170,
-        "Історія України":  175,
-        "Англійська мова":  190,
-    },
-    RegionCoef: true,
-})
-
-// 4. Фільтр + статистика
-top := abit.Filter{
-    StatusInclude: []string{"До наказу", "Рекомендовано"},
-    Funding:       abit.FundingBudget,
-    PriorityMax:   1,
-}.Apply(abits)
-
-summary := abit.Summarize(abits)
-hist    := abit.Distribution(abits, 5)
-real    := abit.RealCompetitors(abits, rating, true)
-
-// 5. abit-poisk lookup
-c := abitpoisk.New(abitpoisk.WithInsecureTLS())
-entries, _ := c.Search(ctx, "Бовкун О В")
-```
-
-Усі функції в `internal/abit/` pure — без I/O. Парсери ходять у мережу, але приймають `context.Context` і безпечні до cancel.
-
-## 🚀 Запуск бота
+## 🛠️ Розробка
 
 ```bash
-cp .env.example .env
-# відредагуй .env: TELEGRAM_TOKEN, опц. ADMIN_IDS
-go run ./cmd/bot
+task check    # go fmt + vet + test
+go test ./internal/...
 ```
 
-Production-білд (scratch-friendly):
-```bash
-CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o aa-bot ./cmd/bot
-```
-
-### Через Docker
-```bash
-cp .env.example .env       # заповни TELEGRAM_TOKEN
-mkdir -p data && chmod 777 data    # тому що контейнер працює як UID 65532
-docker compose up -d
-docker compose logs -f
-```
-Образ — scratch-based, **~13 МБ**. SQLite-файл і WAL живуть у томі `./data` (під WAL ~700 КБ на 2k заявок).
-
-Контейнер закручено: `cap_drop: ALL`, `read_only: true`, `no-new-privileges`, USER 65532. Telegram через long-polling — порти назовні не потрібні.
-
-### Команди в чаті
-
-| Команда | Що робить |
-|---|---|
-| `/start`, `/menu` | Головне меню |
-| `/profile` | НМТ, квоти, РК, творчий бал |
-| `/search <url>` | Аналіз програми; можна просто кинути посилання |
-| `/where` | «Куди я вступлю» — підбір бюджетних програм за галуззю + регіоном, ранжованих за шансом |
-| `/lists` | Збережені аналізи: refresh+diff, share через deep-link, експорт JSON |
-| `/help`, `/about` | Довідка |
-| `/cancel` | Вийти з поточного діалогу |
-
-## 🧪 Dev CLI
+Живий тест браузерного фетчу (на десктопі з дисплеєм):
 
 ```bash
-go run ./cmd/cli osvita    https://vstup.osvita.ua/y2025/r14/282/1471029/
-go run ./cmd/cli abitpoisk "Бовкун О В"
-go run ./cmd/cli osvita ... | go run ./cmd/cli decode
-go run ./cmd/cli edbo decrypt <base64> <n> <prsid> [year]
+go run ./cmd/osvitacheck https://vstup.osvita.ua/y2026/r27/41/1612502/
 ```
 
-## 🛠 Розробка
+## ⚠️ Застереження
 
-```bash
-go test ./...                          # тести
-go vet ./...                           # vet
-~/go/bin/sqlc generate                 # після правки SQL
-```
-
-Database file за замовчуванням `./data/abit.db` — переоприділюється через `DATABASE_PATH`.
-
-## ⚙️ Стек
-
-- **Go 1.26+**
-- **[telebot v3](https://gopkg.in/telebot.v3)** — Telegram Bot API
-- **[modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)** — pure-Go SQLite
-- **[sqlc](https://github.com/sqlc-dev/sqlc)** — типобезпечні запити з SQL
-- **[goquery](https://github.com/PuerkitoBio/goquery)** + `golang.org/x/net/html` — HTML scraping
-- **[go-chart/v2](https://github.com/wcharczuk/go-chart)** — pure-Go PNG charts
-
-## 🗺 Roadmap
-
-- [x] Парсер `vstup.osvita.ua` (fan-out + retry/backoff + cookie warm-up)
-- [x] Парсер `abit-poisk.org.ua` (broken-cert fallback)
-- [x] Декодер з усіма формами статусів і квот
-- [x] Profile flow (НМТ + квоти + РК + творчий) з валідацією 3+1
-- [x] Реальний рейтинговий бал (weighted average + RK)
-- [x] Marker 🔴/🟢 у списку + toggle «Тільки конкуренти»
-- [x] Деталі абітурієнта + abit-poisk історія
-- [x] Persistent FSM у SQLite
-- [x] Saved lists з refresh+diff, share via deep-link, JSON export
-- [x] Summary-екран (місце, шанс, вердикт) після аналізу
-- [x] Manual toggle «це не конкурент» з sticky overrides
-- [x] Гістограма балів картинкою (PNG через go-chart/v2)
-- [x] `/admin` — статистика, broadcast (rate-limited), vacuum cache
-- [x] Docker scratch image + Compose (non-root, read-only rootfs)
-- [ ] Повноцінний EDBO драйвер (`vstup.edbo.gov.ua`) — потребує живого reverse-engineering
+Неофіційний інструмент. Дані з `vstup.osvita.ua` та `abit-poisk.org.ua` — фінальне рішення завжди за офіційним реєстром [ЄДЕБО](https://registry.edbo.gov.ua/). Не гати запитами поспіль по багатьох програмах — Cloudflare може почати частіше показувати перевірку.
 
 ## 📄 Ліцензія
 
-[GPLv3](https://www.gnu.org/licenses/gpl-3.0.html) — як у [попередньої версії](https://github.com/OlexiyOdarchuk/AbitAssistant_Bot).
-
-## 💸 Підтримати
-
-Сервери, кава, мрія про новий ноут — все на одній банці: [Monobank](https://send.monobank.ua/jar/23E3WYNesG).
-
-## 👤 Автор
-
-Олексій Одарчук — [@NeShawyha](https://t.me/NeShawyha) · [GitHub](https://github.com/OlexiyOdarchuk)
+[GPLv3](LICENSE). Попередня Python-версія — [AbitAssistant_Bot 2.x](https://github.com/OlexiyOdarchuk/AbitAssistant_Bot).

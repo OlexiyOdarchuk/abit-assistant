@@ -39,3 +39,6 @@ coverage.txt
 /AbitAssistant
 /.pgdata-local/
 /frontend/package.json.md5
+
+# Claude Code local config
+.claude/
