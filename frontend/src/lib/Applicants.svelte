@@ -50,6 +50,14 @@
     }
   }
   const closeHistory = () => (openRow = null)
+
+  // Escape closes the modal — keyboard users shouldn't get stuck on it.
+  $effect(() => {
+    if (!openRow) return
+    const onKey = (e) => e.key === 'Escape' && closeHistory()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 </script>
 
 <div class="bar">
@@ -96,9 +104,9 @@
 
 {#if openRow}
   <div class="backdrop" onclick={closeHistory} role="presentation">
-    <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog">
+    <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="appmodal-title">
       <header>
-        <strong>{openRow.name}</strong>
+        <strong id="appmodal-title">{openRow.name}</strong>
         <button class="x" onclick={closeHistory}>✕</button>
       </header>
       <div class="detail">

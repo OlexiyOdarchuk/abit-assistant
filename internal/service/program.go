@@ -16,7 +16,6 @@ import (
 
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser"
-	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
 )
 
 // ProgramService is the read-side use case for "give me the applicants
@@ -62,7 +61,7 @@ func (s *ProgramService) Fetch(ctx context.Context, url string) (*abit.Program, 
 	switch {
 	case err == nil:
 		return prog, nil
-	case errors.Is(err, storage.ErrCacheMiss), errors.Is(err, storage.ErrCacheStale):
+	case errors.Is(err, abit.ErrCacheMiss), errors.Is(err, abit.ErrCacheStale):
 		// fall through to refresh
 	default:
 		return nil, fmt.Errorf("program: cache lookup: %w", err)

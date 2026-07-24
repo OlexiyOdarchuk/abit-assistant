@@ -30,11 +30,11 @@ var migrationsFS embed.FS
 
 // Sentinel errors.
 var (
-	// ErrCacheMiss means the requested key isn't in the cache table.
-	// Reserved for the program_cache / applicant_cache tables.
-	ErrCacheMiss = errors.New("storage: cache miss")
-	// ErrCacheStale means the cache entry exists but is older than the TTL.
-	ErrCacheStale = errors.New("storage: cache stale")
+	// ErrCacheMiss / ErrCacheStale alias the shared abit sentinels so existing
+	// storage callers keep working while the values live in a leaf package
+	// (keeps pgx out of the desktop binary — see abit/errors.go).
+	ErrCacheMiss  = abit.ErrCacheMiss
+	ErrCacheStale = abit.ErrCacheStale
 	// ErrNotFound means a regular (non-cache) row wasn't found —
 	// saved lists, users, etc.
 	ErrNotFound = errors.New("storage: not found")

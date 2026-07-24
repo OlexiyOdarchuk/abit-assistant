@@ -10,7 +10,6 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
-	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
 )
 
 // ApplicantSearcher is the minimal interface ApplicantService needs from
@@ -64,7 +63,7 @@ func (s *ApplicantService) Search(ctx context.Context, name string) ([]abit.Appl
 	switch {
 	case err == nil:
 		return entries, nil
-	case errors.Is(err, storage.ErrCacheMiss), errors.Is(err, storage.ErrCacheStale):
+	case errors.Is(err, abit.ErrCacheMiss), errors.Is(err, abit.ErrCacheStale):
 		// fall through
 	default:
 		return nil, fmt.Errorf("applicant: cache lookup: %w", err)

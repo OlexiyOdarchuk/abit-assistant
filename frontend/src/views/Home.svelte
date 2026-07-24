@@ -1,6 +1,7 @@
 <script>
   import { profile, lists, history, SUBJECTS } from '../lib/state.svelte.js'
   import Mascot from '../lib/Mascot.svelte'
+  import { isDesktop } from '../lib/desktop.js'
 
   const goAnalyze = (url) => (location.hash = '#/analyze/' + encodeURIComponent(url))
 
@@ -55,6 +56,14 @@
       <span class="a-go">Підібрати →</span>
     </a>
   </div>
+
+  <a class="help-cta rise" style="animation-delay:.18s" href="#/help">
+    <span class="hc-ic">❓</span>
+    <span class="hc-txt">
+      <strong>Вперше тут?</strong> За хвилину — як це працює й що означають шанси{#if isDesktop} (і чому відкривається браузер){/if}.
+    </span>
+    <span class="hc-go">→</span>
+  </a>
 
   {#if history.length}
     <h3>Нещодавні</h3>
@@ -113,6 +122,19 @@
   .action h2 { margin: 0.7rem 0 0.4rem; }
   .action p { margin: 0; color: var(--muted); font-size: 0.93rem; flex: 1; }
   .a-go { margin-top: 1rem; font-weight: 700; color: var(--accent); }
+
+  .help-cta {
+    display: flex; align-items: center; gap: 0.8rem; margin-top: 1rem;
+    text-decoration: none; color: inherit;
+    background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+    border-radius: var(--r-ctrl); padding: 0.85rem 1rem;
+    transition: border-color 0.14s, transform 0.14s;
+  }
+  .help-cta:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .help-cta .hc-ic { font-size: 1.4rem; }
+  .help-cta .hc-txt { flex: 1; font-size: 0.92rem; color: var(--text); }
+  .help-cta .hc-txt strong { color: var(--accent-ink); }
+  .help-cta .hc-go { color: var(--accent); font-weight: 800; font-size: 1.2rem; }
 
   .saved { display: flex; flex-direction: column; gap: 0.5rem; }
   .saved-row {

@@ -9,8 +9,13 @@
   import Profile from './views/Profile.svelte'
   import Lists from './views/Lists.svelte'
   import Help from './views/Help.svelte'
+  import { isDesktop } from './lib/desktop.js'
 
   persist() // wire localStorage saves
+
+  // On desktop the frameless title bar occupies the top 34px; tag the root so
+  // the sticky nav can park just below it instead of being clipped.
+  if (isDesktop) document.documentElement.classList.add('desktop')
 
   function parse() {
     const h = location.hash.replace(/^#\//, '')
@@ -45,20 +50,18 @@
     location.reload()
   }
 
+  // One label per destination, used identically in the top nav and the mobile
+  // tab bar (no more "Куди вступлю"/"Підбір" or "Збережені"/"Списки" drift).
   const nav = [
-    { id: 'home', label: 'Головна' },
-    { id: 'analyze', label: 'Аналіз' },
-    { id: 'priorities', label: 'Прогноз' },
-    { id: 'discover', label: 'Куди вступлю' },
-    { id: 'lists', label: 'Збережені' },
-  ]
-  const bottomNav = [
     { id: 'home', label: 'Головна', icon: '🏠' },
     { id: 'analyze', label: 'Аналіз', icon: '🔎' },
     { id: 'priorities', label: 'Прогноз', icon: '🎯' },
-    { id: 'discover', label: 'Підбір', icon: '🧭' },
-    { id: 'lists', label: 'Списки', icon: '💾' },
+    { id: 'discover', label: 'Куди вступлю', icon: '🧭' },
+    { id: 'lists', label: 'Збережені', icon: '💾' },
+    { id: 'help', label: 'Довідка', icon: '❓' },
   ]
+  // Mobile tab bar keeps the 5 primary destinations (Help lives on Home + menu).
+  const bottomNav = nav.filter((n) => n.id !== 'help')
 </script>
 
 <WindowControls />
@@ -98,8 +101,6 @@
               <a href="#/profile" role="menuitem"><span>👤</span> Профіль</a>
               <a href="#/help" role="menuitem"><span>❓</span> Як користуватися</a>
               <div class="sep"></div>
-              <a href="https://t.me/AbitAssistant_bot" target="_blank" rel="noreferrer" role="menuitem"
-                ><span>✈️</span> Бот у Telegram</a>
               <a href="https://vstup.osvita.ua" target="_blank" rel="noreferrer" role="menuitem"
                 ><span>🌐</span> vstup.osvita.ua</a>
               <div class="sep"></div>
@@ -162,6 +163,8 @@
     border-bottom: 1px solid var(--border);
     flex-wrap: wrap;
   }
+  /* desktop: park the sticky nav just under the 34px frameless title bar */
+  :global(html.desktop) .topbar { top: 34px; }
   .topbar.minimal { justify-content: space-between; }
   .brand {
     font-family: var(--font-display);

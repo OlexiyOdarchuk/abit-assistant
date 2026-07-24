@@ -152,7 +152,7 @@
     <input
       type="url"
       bind:value={url}
-      placeholder="https://vstup.osvita.ua/y2025/r14/282/1471029/"
+      placeholder="https://vstup.osvita.ua/y2026/r27/41/1612502/"
     />
     <button class="primary" disabled={loading}>{loading ? 'Аналізую…' : 'Аналізувати'}</button>
   </form>
@@ -318,7 +318,7 @@
   .unlikely-toggle { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.9rem; font-size: 0.9rem; cursor: pointer; }
   .unlikely-toggle .hint { flex-basis: 100%; color: var(--muted); font-size: 0.76rem; line-height: 1.35; margin-left: 1.5rem; }
   .advice { margin-top: 0.9rem; padding: 0.7rem 0.9rem; background: var(--accent-soft); color: var(--accent-ink); border-radius: 12px; }
-  .warn { margin-top: 0.6rem; padding: 0.7rem 0.9rem; background: color-mix(in srgb, #e6a817 18%, transparent); color: var(--ink); border-radius: 12px; font-size: 0.92rem; line-height: 1.4; }
+  .warn { margin-top: 0.6rem; padding: 0.7rem 0.9rem; background: var(--match-soft); border: 1px solid color-mix(in srgb, var(--match) 30%, transparent); color: var(--text); border-radius: 12px; font-size: 0.92rem; line-height: 1.4; }
   .asof { margin-top: 0.7rem; text-align: center; color: var(--muted); font-size: 0.82rem; }
   .actions { display: flex; gap: 0.6rem; margin-top: 1rem; flex-wrap: wrap; align-items: center; }
   .btn-link { align-self: center; font-size: 0.9rem; }

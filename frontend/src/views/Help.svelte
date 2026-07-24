@@ -1,7 +1,7 @@
 <script>
   // Static guide: what the app does, how to use it, how it works under the
   // hood, and when it's useful. Pure content — no backend calls.
-  const isDesktop = typeof window !== 'undefined' && !!window.runtime
+  import { isDesktop } from '../lib/desktop.js'
 
   const steps = [
     {
@@ -121,6 +121,6 @@
   .feat .ic { font-size: 1.5rem; line-height: 1; }
   .how ul { margin: 0.6rem 0 0; padding-left: 1.1rem; color: var(--muted); font-size: 0.92rem; }
   .how li { margin: 0.35rem 0; }
-  .how li strong, .foot strong { color: var(--text); }
+  .how li strong { color: var(--text); }
   .foot { color: var(--muted); font-size: 0.85rem; margin-top: 1.4rem; }
 </style>

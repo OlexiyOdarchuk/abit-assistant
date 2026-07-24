@@ -23,6 +23,11 @@ tasks:
     cmds:
       - 'wails build -clean -tags webkit2_41 -trimpath -ldflags "-s -w"'
 
+  build-compact:
+    desc: Build + UPX-compress the binary (~3x smaller; needs upx installed)
+    cmds:
+      - 'wails build -clean -tags webkit2_41 -trimpath -ldflags "-s -w" -upx'
+
   test:
     desc: Run Go tests (core + desktop)
     cmds:

@@ -2,6 +2,7 @@
   import { profileFilled, completeOnboarding } from '../lib/state.svelte.js'
   import ProfileForm from '../lib/ProfileForm.svelte'
   import Mascot from '../lib/Mascot.svelte'
+  import { isDesktop } from '../lib/desktop.js'
 
   function finish() {
     if (!profileFilled()) return
@@ -14,12 +15,12 @@
   <div class="onb-card rise">
     <div class="head">
       <Mascot size={64} />
-      <span class="badge">Крок 1 з 1 · обов'язково</span>
+      <span class="badge">Єдиний крок · обов'язково</span>
     </div>
     <h1>Привіт! Я <span class="gradient-text">Абік</span>. Почнемо з балів НМТ</h1>
     <p class="lead">
       Щоб порахувати твої шанси на бюджет і знайти реальних конкурентів, мені потрібні
-      бали НМТ. Вони лишаються лише у твоєму браузері — нічого не зберігаємо.
+      бали НМТ. Вони лишаються лише у тебе — нікуди не надсилаються.
     </p>
 
     <div class="form">
@@ -29,11 +30,18 @@
     <button class="primary big" onclick={finish} disabled={!profileFilled()}>
       {profileFilled() ? 'Готово, поїхали →' : 'Впиши 3 обов’язкові + 1 на вибір'}
     </button>
+
+    <p class="next">
+      Далі: встав посилання на програму з osvita — і побачиш свій бал, шанси й конкурентів.
+      {#if isDesktop}<br />Перший аналіз відкриє вікно браузера (~20с) — можливо, з перевіркою «я не робот». Це нормально.{/if}
+    </p>
   </div>
 </div>
 
 <style>
   .onb { min-height: 100vh; display: grid; place-items: start center; padding: clamp(1.5rem, 6vw, 4rem) 1.2rem; }
+  :global(html.desktop) .onb { min-height: calc(100vh - 34px); }
+  .next { color: var(--muted); font-size: 0.85rem; line-height: 1.5; margin: 1.1rem 0 0; text-align: center; }
   .onb-card {
     width: 100%;
     max-width: 560px;

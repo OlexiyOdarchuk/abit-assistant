@@ -14,7 +14,6 @@ import (
 
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/service"
-	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
 
 	_ "modernc.org/sqlite" // pure-Go SQLite driver (no CGO → clean cross-compile)
 )
@@ -25,8 +24,8 @@ import (
 // re-fetching everything on every launch would be painful.
 //
 // It mirrors the Postgres store's contract exactly: entries carry a Unix
-// updated_at, reads past the TTL return storage.ErrCacheStale, and absent keys
-// return storage.ErrCacheMiss — so the reused services' errors.Is checks work
+// updated_at, reads past the TTL return abit.ErrCacheStale, and absent keys
+// return abit.ErrCacheMiss — so the reused services' errors.Is checks work
 // identically against either backend.
 type Cache struct {
 	db *sql.DB
@@ -85,8 +84,8 @@ CREATE TABLE IF NOT EXISTS applicant_cache (
 	return nil
 }
 
-// GetProgramCache returns the cached program for url, or storage.ErrCacheMiss /
-// storage.ErrCacheStale.
+// GetProgramCache returns the cached program for url, or abit.ErrCacheMiss /
+// abit.ErrCacheStale.
 func (c *Cache) GetProgramCache(ctx context.Context, url string, ttl time.Duration) (*abit.Program, error) {
 	var data string
 	var updatedAt int64
@@ -94,12 +93,12 @@ func (c *Cache) GetProgramCache(ctx context.Context, url string, ttl time.Durati
 		Scan(&data, &updatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, storage.ErrCacheMiss
+			return nil, abit.ErrCacheMiss
 		}
 		return nil, err
 	}
 	if isStale(updatedAt, ttl) {
-		return nil, storage.ErrCacheStale
+		return nil, abit.ErrCacheStale
 	}
 	var prog abit.Program
 	if err := json.Unmarshal([]byte(data), &prog); err != nil {
@@ -130,12 +129,12 @@ func (c *Cache) GetApplicantCache(ctx context.Context, name string, ttl time.Dur
 		Scan(&data, &updatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, storage.ErrCacheMiss
+			return nil, abit.ErrCacheMiss
 		}
 		return nil, err
 	}
 	if isStale(updatedAt, ttl) {
-		return nil, storage.ErrCacheStale
+		return nil, abit.ErrCacheStale
 	}
 	var out []abit.ApplicantEntry
 	if err := json.Unmarshal([]byte(data), &out); err != nil {
