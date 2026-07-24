@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+#
+# Desktop (Wails) build tasks. The server variants are built separately via the
+# Dockerfile (cmd/app). See wails.json for the frontend wiring.
+version: "3"
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list-all
+
+  # -tags webkit2_41: modern Linux ships webkit2gtk-4.1; the default 4.0 link
+  # fails with undefined JXL symbols on rolling distros. The tag is inert on
+  # Windows/macOS, so it's safe to keep everywhere.
+  dev:
+    desc: Run the desktop app in dev mode (hot reload)
+    cmds:
+      - "wails dev -tags webkit2_41"
+
+  build:
+    desc: Build the desktop app for the current OS
+    cmds:
+      - 'wails build -clean -tags webkit2_41 -trimpath -ldflags "-s -w"'
+
+  test:
+    desc: Run Go tests (core + desktop)
+    cmds:
+      - "go test ./internal/..."
+
+  check:
+    desc: Format, vet, test
+    cmds:
+      - "go fmt ./internal/... ./cmd/..."
+      - "go vet ./internal/... ./cmd/..."
+      - "go test ./internal/..."

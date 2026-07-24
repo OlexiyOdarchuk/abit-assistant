@@ -18,7 +18,11 @@ services:
     ports:
       - "5432:5432" # exposed so `go test` (TEST_DATABASE_URL) can reach it
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      # A named volume, NOT a repo-tree bind mount: container-owned files under
+      # ./data/postgres (mode 700) broke every `go`/wails command that walks the
+      # module (pattern `all`). Postgres is server-only anyway — irrelevant to
+      # the desktop build. `docker compose down -v` wipes it.
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U abit -d abit"]
       interval: 5s
@@ -105,3 +109,8 @@ services:
       resources:
         limits:
           memory: 1G
+
+# Named volume for Postgres data — kept OUT of the repo tree (see the app
+# service comment). `docker volume rm abitassistant_pgdata` to reset.
+volumes:
+  pgdata:
