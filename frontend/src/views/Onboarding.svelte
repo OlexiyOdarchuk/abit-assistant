@@ -2,6 +2,7 @@
   import { profileFilled, completeOnboarding } from '../lib/state.svelte.js'
   import ProfileForm from '../lib/ProfileForm.svelte'
   import Mascot from '../lib/Mascot.svelte'
+  import Campus from '../lib/Campus.svelte'
   import { isDesktop } from '../lib/desktop.js'
 
   function finish() {
@@ -12,6 +13,7 @@
 </script>
 
 <div class="onb grid-bg">
+  <div class="campus-bg"><Campus /></div>
   <div class="onb-card rise">
     <div class="head">
       <Mascot size={64} />
@@ -39,7 +41,9 @@
 </div>
 
 <style>
-  .onb { min-height: 100vh; display: grid; place-items: start center; padding: clamp(1.5rem, 6vw, 4rem) 1.2rem; }
+  .onb { position: relative; min-height: 100vh; display: grid; place-items: start center; padding: clamp(1.5rem, 6vw, 4rem) 1.2rem; overflow: hidden; }
+  .campus-bg { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: min(720px, 92vw); z-index: 0; }
+  .onb-card { position: relative; z-index: 1; }
   :global(html.desktop) .onb { min-height: calc(100vh - 34px); }
   .next { color: var(--muted); font-size: 0.85rem; line-height: 1.5; margin: 1.1rem 0 0; text-align: center; }
   .onb-card {

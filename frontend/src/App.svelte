@@ -15,7 +15,21 @@
 
   // On desktop the frameless title bar occupies the top 34px; tag the root so
   // the sticky nav can park just below it instead of being clipped.
-  if (isDesktop) document.documentElement.classList.add('desktop')
+  if (isDesktop) {
+    document.documentElement.classList.add('desktop')
+    // In the Wails webview, <a target="_blank"> does nothing — external links
+    // must go through the runtime to open the system browser. Intercept every
+    // http(s) link app-wide (menu, Help, applicant calculator links, footer).
+    document.addEventListener('click', (e) => {
+      const a = e.target.closest?.('a[href]')
+      if (!a) return
+      const href = a.getAttribute('href') || ''
+      if (/^https?:\/\//i.test(href)) {
+        e.preventDefault()
+        window.runtime?.BrowserOpenURL?.(href)
+      }
+    })
+  }
 
   function parse() {
     const h = location.hash.replace(/^#\//, '')
@@ -263,6 +277,9 @@
     border-radius: 2px 2px 0 0;
   }
   main { flex: 1; width: 100%; max-width: 760px; margin: 0 auto; padding: clamp(1rem, 4vw, 2rem); }
+  /* desktop: use the wide window — grids (auto-fit) spread into more columns,
+     so a maximized window fills out and needs far less vertical scrolling. */
+  :global(html.desktop) main { max-width: 1080px; }
   footer {
     text-align: center;
     padding: 1.5rem;

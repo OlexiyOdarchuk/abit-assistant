@@ -6,13 +6,10 @@ require (
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/chromedp/cdproto v0.0.0-20260714215040-dc233986426f
 	github.com/chromedp/chromedp v0.16.0
-	github.com/jackc/pgx/v5 v5.10.0
 	github.com/wailsapp/wails/v2 v2.12.0
-	github.com/wcharczuk/go-chart/v2 v2.1.2
 	golang.org/x/net v0.52.0
 	golang.org/x/sync v0.21.0
 	golang.org/x/time v0.15.0
-	gopkg.in/telebot.v3 v3.3.8
 	modernc.org/sqlite v1.54.0
 )
 
@@ -28,12 +25,8 @@ require (
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
-	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
-	github.com/jackc/pgpassfile v1.0.0 // indirect
-	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jchv/go-winloader v0.0.0-20210711035445-715c2860da7e // indirect
 	github.com/labstack/echo/v4 v4.13.3 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
@@ -49,13 +42,13 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/samber/lo v1.49.1 // indirect
+	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tkrajina/go-reflector v0.5.8 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	golang.org/x/crypto v0.49.0 // indirect
-	golang.org/x/image v0.18.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 	modernc.org/libc v1.74.1 // indirect

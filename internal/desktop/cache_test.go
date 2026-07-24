@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
-	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
 )
 
 func TestCache_ProgramRoundTrip(t *testing.T) {
@@ -16,7 +15,7 @@ func TestCache_ProgramRoundTrip(t *testing.T) {
 	const url = "https://vstup.osvita.ua/y2026/r27/41/1612502/"
 
 	// Miss before write.
-	if _, err := c.GetProgramCache(ctx, url, time.Hour); !errors.Is(err, storage.ErrCacheMiss) {
+	if _, err := c.GetProgramCache(ctx, url, time.Hour); !errors.Is(err, abit.ErrCacheMiss) {
 		t.Fatalf("empty cache: got %v, want ErrCacheMiss", err)
 	}
 
@@ -56,7 +55,7 @@ func TestCache_ProgramStale(t *testing.T) {
 	}
 	// A 1ns TTL makes any existing row stale.
 	time.Sleep(2 * time.Millisecond)
-	if _, err := c.GetProgramCache(ctx, url, time.Nanosecond); !errors.Is(err, storage.ErrCacheStale) {
+	if _, err := c.GetProgramCache(ctx, url, time.Nanosecond); !errors.Is(err, abit.ErrCacheStale) {
 		t.Fatalf("expected ErrCacheStale, got %v", err)
 	}
 }
@@ -65,7 +64,7 @@ func TestCache_ApplicantRoundTrip(t *testing.T) {
 	c := openTestCache(t)
 	ctx := context.Background()
 	const name = "Іваненко І. І."
-	if _, err := c.GetApplicantCache(ctx, name, time.Hour); !errors.Is(err, storage.ErrCacheMiss) {
+	if _, err := c.GetApplicantCache(ctx, name, time.Hour); !errors.Is(err, abit.ErrCacheMiss) {
 		t.Fatalf("empty: got %v, want ErrCacheMiss", err)
 	}
 	want := []abit.ApplicantEntry{{FullName: "Іваненко Іван Іванович", TotalScore: "180.5"}}

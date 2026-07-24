@@ -10,8 +10,6 @@ import (
 
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/abit"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/service"
-	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
-	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage/pgtest"
 )
 
 // fakeSource is a parser.Source double driven by a programmable Parse fn.
@@ -26,9 +24,66 @@ func (f *fakeSource) Parse(ctx context.Context, url string) (*abit.Program, erro
 }
 func (f *fakeSource) ID() string { return "fake" }
 
-func newStore(t *testing.T) *storage.Store {
+// memCache is an in-memory service.ProgramCache for tests (the real backend is
+// the desktop SQLite cache / the former Postgres store; the service only needs
+// the interface). It honours TTL and returns the shared abit sentinels.
+type memCache struct {
+	mu   sync.Mutex
+	m    map[string]memEntry
+	appM map[string]memAppEntry
+}
+type memEntry struct {
+	prog *abit.Program
+	at   time.Time
+}
+type memAppEntry struct {
+	entries []abit.ApplicantEntry
+	at      time.Time
+}
+
+func (c *memCache) GetProgramCache(_ context.Context, url string, ttl time.Duration) (*abit.Program, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.m[url]
+	if !ok {
+		return nil, abit.ErrCacheMiss
+	}
+	if ttl > 0 && time.Since(e.at) > ttl {
+		return nil, abit.ErrCacheStale
+	}
+	return e.prog, nil
+}
+
+func (c *memCache) PutProgramCache(_ context.Context, url string, prog *abit.Program) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.m[url] = memEntry{prog: prog, at: time.Now()}
+	return nil
+}
+
+func (c *memCache) GetApplicantCache(_ context.Context, name string, ttl time.Duration) ([]abit.ApplicantEntry, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.appM[name]
+	if !ok {
+		return nil, abit.ErrCacheMiss
+	}
+	if ttl > 0 && time.Since(e.at) > ttl {
+		return nil, abit.ErrCacheStale
+	}
+	return e.entries, nil
+}
+
+func (c *memCache) PutApplicantCache(_ context.Context, name string, entries []abit.ApplicantEntry) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.appM[name] = memAppEntry{entries: entries, at: time.Now()}
+	return nil
+}
+
+func newStore(t *testing.T) *memCache {
 	t.Helper()
-	return pgtest.New(t)
+	return &memCache{m: map[string]memEntry{}, appM: map[string]memAppEntry{}}
 }
 
 func newFixtureProgram() *abit.Program {

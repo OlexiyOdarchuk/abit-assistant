@@ -8,10 +8,7 @@
 
 > Реальні шанси на вступ для абітурієнтів України — на основі **живої черги заяв**, а не здогадок. Тягне конкурсні списки з [vstup.osvita.ua](https://vstup.osvita.ua), рахує твій конкурсний бал, показує шанс на бюджет і хто твої справжні конкуренти.
 
-Один рушій (чисте Go) під двома оболонками:
-
-- 🖥️ **Desktop-застосунок** (Wails + Svelte) — рекомендовано. Проходить Cloudflare-захист osvita через справжній браузер у тебе на компʼютері, рахує все локально. Нічого хостити не треба.
-- ☁️ **Сервер** (Telegram-бот + веб) — для масового доступу з телефонів.
+**Desktop-застосунок** на Wails + Svelte (чисте Go всередині). Проходить Cloudflare-захист osvita через справжній браузер у тебе на компʼютері й рахує все **локально** — нічого хостити не треба, профіль нікуди не йде.
 
 ---
 
@@ -56,35 +53,22 @@ task build    # зібрати бінарник у build/bin/
 
 > **Linux:** збірка йде з тегом `webkit2_41` (див. `Taskfile.yml`) — сучасні дистрибутиви мають `webkit2gtk-4.1`, а не застарілий `4.0`. Тег інертний на Windows/macOS.
 
-## ☁️ Серверний режим (бот + веб)
-
-Той самий домен, але дані тягне сервер (потрібен браузерний сайдкар для Cloudflare — див. `docker-compose.yml`).
-
-```bash
-docker compose up -d          # postgres + застосунок (+ chromium-сайдкар)
-docker compose logs -f app
-```
-
-Env: `DATABASE_URL` (обовʼязково), `TELEGRAM_TOKEN` (вмикає бота), `HTTP_ADDR` (веб, `:8080`), `OSVITA_BROWSER_URL` (CDP-ендпоінт браузерного сайдкара).
-
 ## 📐 Архітектура
 
 ```
 main.go, app.go        Desktop-оболонка (Wails): вікно + байндинги над Core
-cmd/                   Серверні входи: app (бот+веб), bot, web, cli
-  osvitacheck/           Валідатор браузерного фетчу проти живої osvita
+cmd/osvitacheck/       Валідатор браузерного фетчу проти живої osvita
 internal/
   abit/                  Домен: скоринг, аналіз, симуляція (чисте Go)
-  apidto/                Спільний JSON-контракт для web + desktop
+  apidto/                JSON-контракт між Core і фронтом
   service/               Use-cases (program/discover/simulate/predict)
   desktop/               Core-facade + локальний SQLite-кеш
   parser/
     osvita/                Парсер + інтерфейси фетчерів (403 → браузер)
     osvitabrowser/         chromedp-драйвер: single-shot фетч крізь Turnstile
     abitpoisk/             Крос-довідка заяв абітурієнта
-  web/                   HTTP API + вбудований SPA (серверний режим)
-  bot/, storage/, httpx/, visualizer/
-frontend/              Svelte 5 + Vite (спільний UI обох оболонок)
+  httpx/                 Rate-limit + circuit breaker до джерел
+frontend/              Svelte 5 + Vite (UI, локальні шрифти з кирилицею)
 ```
 
 `internal/parser/osvitabrowser` — серце обходу Cloudflare: один запуск браузера читає HTML сторінки (`document.documentElement.outerHTML` після розвʼязаної капчі) + пагінує API заяв, реюзаючи щойно-отриманий токен і ретраячи на post-captcha reload. Драйвери реалізують `osvita.ProgramDataFetcher`.
