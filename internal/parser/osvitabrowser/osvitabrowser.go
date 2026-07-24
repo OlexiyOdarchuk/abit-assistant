@@ -149,9 +149,18 @@ func (d *Driver) resolveWS(ctx context.Context) (string, error) {
 		port = "9222"
 	}
 	// Resolve to an IP so Chrome's Host-header guard accepts the connection.
+	// Prefer IPv4: Chrome's --remote-debugging-address=0.0.0.0 binds IPv4, and
+	// a hostname like "localhost" often resolves to ::1 first, which Chrome
+	// isn't listening on (connection reset).
 	addr := host
 	if ips, lerr := net.DefaultResolver.LookupIPAddr(ctx, host); lerr == nil && len(ips) > 0 {
 		addr = ips[0].IP.String()
+		for _, ip := range ips {
+			if ip.IP.To4() != nil {
+				addr = ip.IP.String()
+				break
+			}
+		}
 	}
 	hostPort := net.JoinHostPort(addr, port)
 
@@ -229,13 +238,20 @@ func collectorJS(year, sid, uid string) string {
     return j;
   }
   const out = { requests: [], requests_subjects: {}, pages: 0, error: '' };
-  if (!(await waitReady())) { out.error = 'turnstile not ready'; return out; }
+  if (!(await waitReady())) {
+    out.error = 'turnstile not ready (typeof=' + (typeof window.turnstile) + ')';
+    return out;
+  }
   let prev = '', last = 0;
   for (let page = 0; page < PAGE_CAP; page++) {
     let data = null;
     for (let attempt = 0; attempt < FLAKY_RETRIES; attempt++) {
       const tok = await freshToken(prev);
-      if (!tok) { out.error = 'no fresh turnstile token'; return out; }
+      if (!tok) {
+        const cur = (() => { try { return window.turnstile.getResponse(); } catch (e) { return 'err:' + e.message; } })();
+        out.error = 'no fresh turnstile token (curLen=' + (cur ? cur.length : 0) + ', same=' + (cur === prev) + ')';
+        return out;
+      }
       prev = tok;
       let j;
       try { j = await postPage(last, tok); }

@@ -58,9 +58,18 @@ services:
         limits:
           memory: 384M
 
-  # Headless Chromium sidecar — solves osvita's Cloudflare Turnstile challenge
-  # for the applicant API (the app image stays `scratch`; the browser never
-  # lives inside it). The Go app reaches it over CDP at OSVITA_BROWSER_URL.
+  # Chromium sidecar — clears osvita's Cloudflare Turnstile challenge for the
+  # applicant API (the app image stays `scratch`; the browser never lives in
+  # it). The Go app reaches it over CDP at OSVITA_BROWSER_URL.
+  #
+  # ⚠️  DETECTION: a plain HEADLESS Chromium is fingerprinted and BLOCKED by
+  # Turnstile — the widget loads but never issues a token (verified against the
+  # live site: getResponse() stays empty). A real *headed* Chrome solves the
+  # managed challenge instantly. So for this to actually work the sidecar must
+  # run the browser HEADFUL under a virtual display (Xvfb), or use a
+  # stealth-configured image (e.g. browserless/chromium). The alpine-chrome
+  # config below is a lean, reachable STARTING POINT for wiring/e2e — swap in a
+  # headful/stealth browser before relying on it in production.
   # Pin the tag for reproducible builds; `latest` is used here for convenience.
   chromium:
     image: zenika/alpine-chrome:latest
@@ -68,6 +77,8 @@ services:
     restart: unless-stopped
     # Entrypoint is chromium-browser; these args make it a remote DevTools host.
     #   --remote-debugging-address=0.0.0.0 — reachable from the app container
+    #     (NOTE: --headless=new ignores this and binds loopback-only; use plain
+    #      --headless, or run headful under Xvfb, for a network-reachable port)
     #   --remote-allow-origins=*           — newer Chromium rejects CDP otherwise
     #   --disable-dev-shm-usage            — survive the small default /dev/shm
     command:
