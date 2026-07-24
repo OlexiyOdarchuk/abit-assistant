@@ -29,7 +29,7 @@ import (
 // rest wait for the same result.
 type ProgramService struct {
 	src    parser.Source
-	store  *storage.Store
+	store  ProgramCache
 	ttl    time.Duration
 	log    *slog.Logger
 	flight singleflight.Group
@@ -38,7 +38,7 @@ type ProgramService struct {
 // NewProgramService wires a service with the given source and store.
 // ttl is the cache freshness window — cached programs older than this
 // trigger a re-fetch on the next Fetch call.
-func NewProgramService(src parser.Source, store *storage.Store, ttl time.Duration) *ProgramService {
+func NewProgramService(src parser.Source, store ProgramCache, ttl time.Duration) *ProgramService {
 	return &ProgramService{
 		src:   src,
 		store: store,

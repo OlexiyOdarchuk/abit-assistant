@@ -31,7 +31,7 @@ type ApplicantSearcher interface {
 // doesn't fire N parallel POSTs at rate-sensitive abit-poisk.
 type ApplicantService struct {
 	src    ApplicantSearcher
-	store  *storage.Store
+	store  ApplicantCache
 	ttl    time.Duration
 	log    *slog.Logger
 	flight singleflight.Group
@@ -40,7 +40,7 @@ type ApplicantService struct {
 // NewApplicantService wires the service. ttl is the cache freshness
 // window — defaults around 24h are reasonable for a season-long
 // admission campaign.
-func NewApplicantService(src ApplicantSearcher, store *storage.Store, ttl time.Duration) *ApplicantService {
+func NewApplicantService(src ApplicantSearcher, store ApplicantCache, ttl time.Duration) *ApplicantService {
 	return &ApplicantService{
 		src:   src,
 		store: store,
