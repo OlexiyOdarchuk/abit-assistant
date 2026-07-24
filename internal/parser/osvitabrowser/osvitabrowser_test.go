@@ -12,8 +12,11 @@ import (
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser/osvita"
 )
 
-// The Driver must satisfy osvita's fallback seam.
-var _ osvita.RequestsFetcher = (*Driver)(nil)
+// Both drivers must satisfy osvita's fallback seam.
+var (
+	_ osvita.RequestsFetcher = (*Driver)(nil)
+	_ osvita.RequestsFetcher = (*LocalDriver)(nil)
+)
 
 // TestResolveWS_HTTPRewritesHost checks the bare-Chrome path: /json/version is
 // queried and its webSocketDebuggerUrl host is rewritten to the reachable

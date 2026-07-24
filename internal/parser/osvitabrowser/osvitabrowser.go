@@ -94,13 +94,22 @@ func (d *Driver) FetchRequests(ctx context.Context, programURL, year, sid, uid s
 
 	allocCtx, cancelAlloc := chromedp.NewRemoteAllocator(ctx, wsURL)
 	defer cancelAlloc()
+	return runCollect(allocCtx, d.log, programURL, year, sid, uid)
+}
+
+// runCollect drives one already-allocated browser (remote or local): it opens a
+// fresh tab, navigates to the program page, runs the in-page Turnstile
+// collector, and decodes the result. Shared by the remote (sidecar) and local
+// (headful Chrome) drivers — the only difference between them is how the
+// browser is allocated.
+func runCollect(allocCtx context.Context, log *slog.Logger, programURL, year, sid, uid string) ([]abit.RawRequest, map[string]abit.ApplicantSubjects, error) {
 	tabCtx, cancelTab := chromedp.NewContext(allocCtx)
 	defer cancelTab()
 
 	js := collectorJS(year, sid, uid)
 	var res browserResult
 	start := time.Now()
-	err = chromedp.Run(tabCtx,
+	err := chromedp.Run(tabCtx,
 		chromedp.Navigate(programURL),
 		chromedp.Evaluate(js, &res, func(p *runtime.EvaluateParams) *runtime.EvaluateParams {
 			return p.WithAwaitPromise(true)
@@ -112,7 +121,7 @@ func (d *Driver) FetchRequests(ctx context.Context, programURL, year, sid, uid s
 	if res.Err != "" {
 		return nil, nil, fmt.Errorf("osvita page: %s", res.Err)
 	}
-	d.log.InfoContext(ctx, "osvitabrowser: fetched requests",
+	log.InfoContext(allocCtx, "osvitabrowser: fetched requests",
 		"url", programURL, "requests", len(res.Requests), "pages", res.Pages,
 		"took", time.Since(start).Round(time.Millisecond))
 	if res.Subjects == nil {
