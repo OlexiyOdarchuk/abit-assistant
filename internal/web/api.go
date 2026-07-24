@@ -43,7 +43,7 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	abits := abit.Decode(prog)
-	score := abit.ComputeRating(prog, req.Profile.rating())
+	score := abit.ComputeRating(prog, req.Profile.Rating())
 	analysis := abit.Analyze(prog, abits, abit.AnalyzeInput{UserScore: score, UserQuotas: req.Profile.Quotas})
 	optimistic := abit.Analyze(prog, abits, abit.AnalyzeInput{UserScore: score, UserQuotas: req.Profile.Quotas, ExcludeUnlikely: true})
 
@@ -80,7 +80,7 @@ func (s *Server) handleDiscover(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), apiTimeout)
 	defer cancel()
 
-	res, err := s.deps.Discover.WhereCanIGetIn(ctx, req.Profile.discoverInput(), req.Limit,
+	res, err := s.deps.Discover.WhereCanIGetIn(ctx, req.Profile.DiscoverInput(), req.Limit,
 		discoverFilters(req.Galuz, req.Regions, req.BudgetOnly)...)
 	if err != nil {
 		s.log.WarnContext(ctx, "discover", "err", err)
@@ -114,7 +114,7 @@ func (s *Server) handleSimulate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, "не вдалося отримати дані програми")
 		return
 	}
-	score := abit.ComputeRating(prog, req.Profile.rating())
+	score := abit.ComputeRating(prog, req.Profile.Rating())
 	if score <= 0 {
 		writeErr(w, http.StatusBadRequest, "заповни профіль — без власного балу немає що уточнювати")
 		return
