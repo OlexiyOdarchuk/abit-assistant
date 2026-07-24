@@ -10,6 +10,9 @@
 //	HTTP_ADDR      — web listen address (default ":8080")
 //	ADMIN_IDS      — comma-separated Telegram admin user IDs
 //	LOG_LEVEL      — debug | info | warn | error (default: info)
+//	OSVITA_BROWSER_URL — optional headless-Chromium DevTools endpoint
+//	                     (e.g. http://chromium:9222); enables the browser
+//	                     fallback for osvita's Turnstile-gated applicant API
 package main
 
 import (
@@ -29,8 +32,8 @@ import (
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/bot"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/config"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser/abitpoisk"
-	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser/osvita"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/service"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/sources"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/web"
 )
@@ -92,7 +95,7 @@ func run() error {
 	go store.RunVacuum(rootCtx, vacuumInterval, programCacheTTL, applicantCacheTTL, log)
 
 	// Services are built once and shared by both surfaces.
-	osvitaSrc := osvita.New()
+	osvitaSrc := sources.NewOsvita(log)
 	abitpoiskSrc := abitpoisk.New(abitpoisk.WithInsecureTLS())
 	programSvc := service.NewProgramService(osvitaSrc, store, programCacheTTL)
 	applicantSvc := service.NewApplicantService(abitpoiskSrc, store, applicantCacheTTL)

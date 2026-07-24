@@ -55,4 +55,7 @@ EXPOSE 8080
 #   TELEGRAM_TOKEN — enables the bot; without it only the web runs
 #   HTTP_ADDR / PORT — web listen address (default :8080)
 #   ADMIN_IDS, LOG_LEVEL — optional
+#   OSVITA_BROWSER_URL — optional; headless-Chromium DevTools endpoint
+#                        (e.g. http://chromium:9222) enabling the browser
+#                        fallback for osvita's Turnstile-gated applicant API
 ENTRYPOINT ["/app"]

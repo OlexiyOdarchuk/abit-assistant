@@ -22,8 +22,8 @@ import (
 
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/config"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser/abitpoisk"
-	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser/osvita"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/service"
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/sources"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/storage"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/web"
 )
@@ -76,7 +76,7 @@ func run() error {
 	// applicant names don't accumulate forever (TTL alone only gates reads).
 	go store.RunVacuum(rootCtx, vacuumInterval, programCacheTTL, applicantCacheTTL, log)
 
-	osvitaSrc := osvita.New()
+	osvitaSrc := sources.NewOsvita(log)
 	abitpoiskSrc := abitpoisk.New(abitpoisk.WithInsecureTLS())
 	programSvc := service.NewProgramService(osvitaSrc, store, programCacheTTL)
 	applicantSvc := service.NewApplicantService(abitpoiskSrc, store, applicantCacheTTL)
