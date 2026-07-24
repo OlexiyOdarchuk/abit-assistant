@@ -47,7 +47,15 @@ func NewCore(cache *Cache, log *slog.Logger) *Core {
 		log = slog.Default()
 	}
 	browser := osvitabrowser.NewLocal(osvitabrowser.WithLocalLogger(log))
-	osvitaSrc := osvita.New(osvita.WithRequestsFallback(browser))
+	// Two seams, both served by the same headful browser:
+	//   • WithProgramDataFetcher — the 2026 reality: the static page also 403s,
+	//     so one browser run fetches HTML + requests together.
+	//   • WithRequestsFallback — self-heals if osvita ever ungates the static
+	//     page but keeps the applicant API behind Turnstile.
+	osvitaSrc := osvita.New(
+		osvita.WithProgramDataFetcher(browser),
+		osvita.WithRequestsFallback(browser),
+	)
 	abitpoiskSrc := abitpoisk.New(abitpoisk.WithInsecureTLS())
 
 	program := service.NewProgramService(osvitaSrc, cache, programCacheTTL).WithLogger(log)

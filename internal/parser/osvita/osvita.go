@@ -63,6 +63,7 @@ type Parser struct {
 	workers     int
 	maxRetries  int
 	reqFallback RequestsFetcher
+	dataFetcher ProgramDataFetcher
 }
 
 // RequestsFetcher fetches the applicant-requests half of a program when the
@@ -77,6 +78,16 @@ type RequestsFetcher interface {
 	// per-applicant subjects map, addressed by the same (year, sid, uid) the
 	// HTTP API uses. programURL is the public page URL to render.
 	FetchRequests(ctx context.Context, programURL, year, sid, uid string) (requests []abit.RawRequest, subjects map[string]abit.ApplicantSubjects, err error)
+}
+
+// ProgramDataFetcher fetches a whole program in ONE browser run — both the page
+// HTML and the applicant requests — for when osvita 403s even the static page
+// (the 2026 escalation: whole-site edge block for flagged clients). The browser
+// clears the Cloudflare challenge once and reads everything from that one
+// authenticated session; the returned HTML is parsed by parseStaticHTML exactly
+// like a plain HTTP body, so the resulting Program is identical.
+type ProgramDataFetcher interface {
+	FetchProgramData(ctx context.Context, programURL, year, sid, uid string) (staticHTML string, requests []abit.RawRequest, subjects map[string]abit.ApplicantSubjects, err error)
 }
 
 // Option configures a Parser.
@@ -103,6 +114,13 @@ func WithMaxRetries(n int) Option { return func(p *Parser) { p.maxRetries = n } 
 // Without it, a challenged program fails as before.
 func WithRequestsFallback(f RequestsFetcher) Option {
 	return func(p *Parser) { p.reqFallback = f }
+}
+
+// WithProgramDataFetcher installs a single-shot browser fetcher used when the
+// static page itself is blocked (HTTP 403). Without it, a 403 static page is a
+// hard error.
+func WithProgramDataFetcher(f ProgramDataFetcher) Option {
+	return func(p *Parser) { p.dataFetcher = f }
 }
 
 // New builds a Parser with sensible defaults overridden by opts.
@@ -148,13 +166,56 @@ func (p *Parser) Parse(ctx context.Context, programURL string) (*abit.Program, e
 
 	prog, err := p.fetchStatic(ctx, programURL)
 	if err != nil {
-		return nil, fmt.Errorf("osvita: static page: %w", err)
+		// 2026 escalation: osvita 403s the static page too. If a browser data
+		// fetcher is configured, clear the Cloudflare challenge once and read
+		// the whole program (HTML + requests) from that one session.
+		if p.dataFetcher == nil {
+			return nil, fmt.Errorf("osvita: static page: %w", err)
+		}
+		return p.fetchViaBrowser(ctx, programURL, year, sid, uid, err)
 	}
 
 	if err := p.fanOut(ctx, prog, programURL, sid, uid, year); err != nil {
 		return nil, fmt.Errorf("osvita: requests: %w", err)
 	}
 	return prog, nil
+}
+
+// fetchViaBrowser is the fully-gated path: one browser run returns the page
+// HTML (parsed here) plus the applicant requests. It VALIDATES the parse so a
+// Cloudflare challenge/interstitial page can never slip through as a silent
+// empty Program — which downstream would look like a vanished program name,
+// a zero score, and no rivals (all from one bad parse, not four bugs).
+func (p *Parser) fetchViaBrowser(ctx context.Context, programURL, year, sid, uid string, staticErr error) (*abit.Program, error) {
+	html, reqs, subj, err := p.dataFetcher.FetchProgramData(ctx, programURL, year, sid, uid)
+	if err != nil {
+		return nil, fmt.Errorf("osvita: browser fetch (static was: %v): %w", staticErr, err)
+	}
+	prog, err := parseStaticHTML(strings.NewReader(html))
+	if err != nil {
+		return nil, fmt.Errorf("osvita: parse browser html: %w", err)
+	}
+	if err := validateProgram(prog); err != nil {
+		return nil, fmt.Errorf("osvita: browser html incomplete — challenge not cleared? %w", err)
+	}
+	prog.Requests = reqs
+	prog.RequestSubjects = subj
+	return prog, nil
+}
+
+// validateProgram rejects a degenerate parse. The program name and the subjects
+// config are the two fields ComputeRating/Analyze need to produce a score,
+// chances and competitor tiers; if either is missing the whole analysis reads
+// as blank, so treat their absence as a hard fetch error rather than serving an
+// empty program.
+func validateProgram(prog *abit.Program) error {
+	if strings.TrimSpace(prog.ProgramName) == "" {
+		return fmt.Errorf("no program name in page")
+	}
+	if len(prog.Subjects) == 0 {
+		return fmt.Errorf("no subjects config in page")
+	}
+	return nil
 }
 
 func parseProgramURL(rawURL string) (sid, uid, year string, err error) {
@@ -475,7 +536,17 @@ func (p *Parser) fetchStatic(ctx context.Context, programURL string) (*abit.Prog
 	if err := checkStatus(resp.StatusCode); err != nil {
 		return nil, err
 	}
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	return parseStaticHTML(resp.Body)
+}
+
+// parseStaticHTML scrapes a program page's HTML into a Program. It is the sole
+// place that knows the page's DOM shape, so it works identically on a plain
+// HTTP response body and on document.documentElement.outerHTML captured from a
+// browser after a Cloudflare challenge (the 2026 gated path). The <script>
+// config block (subjects/rk/statuses/…) the decoder relies on survives in
+// outerHTML, so both inputs yield the same Program.
+func parseStaticHTML(r io.Reader) (*abit.Program, error) {
+	doc, err := goquery.NewDocumentFromReader(r)
 	if err != nil {
 		return nil, err
 	}

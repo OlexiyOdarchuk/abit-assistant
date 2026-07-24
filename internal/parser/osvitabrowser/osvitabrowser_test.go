@@ -12,10 +12,13 @@ import (
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser/osvita"
 )
 
-// Both drivers must satisfy osvita's fallback seam.
+// Both drivers must satisfy both osvita seams: the applicant-only fallback and
+// the single-shot (HTML + requests) fetcher used when the static page 403s.
 var (
-	_ osvita.RequestsFetcher = (*Driver)(nil)
-	_ osvita.RequestsFetcher = (*LocalDriver)(nil)
+	_ osvita.RequestsFetcher    = (*Driver)(nil)
+	_ osvita.RequestsFetcher    = (*LocalDriver)(nil)
+	_ osvita.ProgramDataFetcher = (*Driver)(nil)
+	_ osvita.ProgramDataFetcher = (*LocalDriver)(nil)
 )
 
 // TestResolveWS_HTTPRewritesHost checks the bare-Chrome path: /json/version is
@@ -84,11 +87,15 @@ func TestCollectorJS_InjectsCoordinates(t *testing.T) {
 	js := collectorJS("2026", "1612502", "41")
 	for _, want := range []string{
 		`"2026"`, `"1612502"`, `"41"`, // injected as JSON string literals
-		"turnstile.reset()",       // fresh token per page (single-use)
-		"turnstile.getResponse()", // read the solved token
-		"action: 'requests'",       // the gated API action
-		"'/api/'",                  // POST target
-		"data.requests_subjects",   // subjects collection
+		"turnstile.reset()",                  // fresh token for pages after the first
+		"turnstile.getResponse()",            // read the solved token
+		"action: 'requests'",                 // the gated API action
+		"'/api/'",                            // POST target
+		"data.requests_subjects",             // subjects collection
+		"document.documentElement.outerHTML", // single-shot: capture static HTML
+		"static_html",                        // returned to Go for parsing
+		"page === 0 && attempt === 0",        // reuse the user-solved token, no reset
+		"READY_MS = 60000",                   // give the user time to click the captcha
 	} {
 		if !strings.Contains(js, want) {
 			t.Errorf("collectorJS missing %q", want)

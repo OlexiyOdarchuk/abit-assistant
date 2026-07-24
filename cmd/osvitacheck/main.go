@@ -1,17 +1,17 @@
-// Command osvitacheck is a throwaway validation tool for the desktop pivot: it
-// launches a local HEADFUL Chrome and tries to fetch a program's applicant
-// list from vstup.osvita.ua through it. Its only job is to answer one question
-// before we build the Wails shell: does a chromedp-launched real browser clear
-// osvita's Turnstile challenge on a real desktop?
+// Command osvitacheck validates the full desktop fetch path against live
+// osvita, end to end: plain HTTP static GET → on 403, a single headful-browser
+// run that clears the Cloudflare/Turnstile challenge and returns the page HTML
+// + the applicant requests → parse → validate. It runs the SAME osvita.Parse
+// the desktop app uses, so a green run here means the app will work.
 //
-// Run it ON YOUR DESKTOP (it needs a display + an installed Chrome/Chromium):
+// Run it ON YOUR DESKTOP (needs a display + an installed Chrome/Chromium):
 //
 //	go run ./cmd/osvitacheck https://vstup.osvita.ua/y2026/r27/41/1612502/
 //
-// A Chrome window will briefly appear while it solves the challenge. Success =
-// it prints a non-zero applicant count. Failure ("turnstile ... curLen=0") =
-// even headful-launched Chrome is fingerprinted, and we need stealth tuning or
-// a different browser-launch strategy.
+// A Chrome window appears; solve the "я не робот" checkbox if it shows one.
+// Success prints the program name, subjects-config size and applicant count —
+// if the name and subjects are populated, the app's score/chances/rivals will
+// compute correctly (they're derived from exactly these).
 package main
 
 import (
@@ -19,14 +19,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"regexp"
 	"time"
 
+	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser/osvita"
 	"github.com/OlexiyOdarchuk/abit-assistant/internal/parser/osvitabrowser"
 )
-
-// osvita program URL: /yYYYY/rNN/<uid>/<sid>/
-var urlRe = regexp.MustCompile(`/y(\d{4})/[^/]+/(\d+)/(\d+)/?$`)
 
 func main() {
 	if len(os.Args) < 2 {
@@ -34,30 +31,36 @@ func main() {
 		os.Exit(2)
 	}
 	programURL := os.Args[1]
-	m := urlRe.FindStringSubmatch(programURL)
-	if m == nil {
-		fmt.Fprintf(os.Stderr, "URL doesn't look like a program page: %s\n", programURL)
-		os.Exit(2)
-	}
-	year, uid, sid := m[1], m[2], m[3]
 
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	var opts []osvitabrowser.LocalOption
-	opts = append(opts, osvitabrowser.WithLocalLogger(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))))
+	opts = append(opts, osvitabrowser.WithLocalLogger(log))
 	if len(os.Args) >= 3 {
 		opts = append(opts, osvitabrowser.WithExecPath(os.Args[2]))
 	}
-	drv := osvitabrowser.NewLocal(opts...)
+	browser := osvitabrowser.NewLocal(opts...)
+	src := osvita.New(
+		osvita.WithProgramDataFetcher(browser),
+		osvita.WithRequestsFallback(browser),
+	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	fmt.Printf("launching headful Chrome, fetching %s (year=%s sid=%s uid=%s)…\n", programURL, year, sid, uid)
+	fmt.Printf("fetching %s (a Chrome window will open — solve the captcha if shown)…\n", programURL)
 	start := time.Now()
-	reqs, subj, err := drv.FetchRequests(ctx, programURL, year, sid, uid)
+	prog, err := src.Parse(ctx, programURL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\n❌ FAIL after %s: %v\n", time.Since(start).Round(time.Millisecond), err)
 		os.Exit(1)
 	}
-	fmt.Printf("\n✅ OK in %s: %d applicant requests, %d subject rows — Turnstile passed.\n",
-		time.Since(start).Round(time.Millisecond), len(reqs), len(subj))
+	fmt.Printf("\n✅ OK in %s:\n", time.Since(start).Round(time.Millisecond))
+	fmt.Printf("   program:  %q\n", prog.ProgramName)
+	fmt.Printf("   spec:     %s\n", prog.SpecCode)
+	fmt.Printf("   subjects: %d (config for score) \n", len(prog.Subjects))
+	fmt.Printf("   requests: %d applicants\n", len(prog.Requests))
+	if prog.ProgramName == "" || len(prog.Subjects) == 0 {
+		fmt.Fprintln(os.Stderr, "⚠️  name or subjects EMPTY — analysis would show no score/chances. This is the bug guard talking.")
+		os.Exit(1)
+	}
 }

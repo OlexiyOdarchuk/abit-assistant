@@ -38,3 +38,4 @@ coverage.txt
 /build/bin/
 /AbitAssistant
 /.pgdata-local/
+/frontend/package.json.md5

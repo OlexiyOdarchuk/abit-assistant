@@ -42,9 +42,26 @@ func NewLocal(opts ...LocalOption) *LocalDriver {
 	return d
 }
 
-// FetchRequests implements osvita.RequestsFetcher by launching a headful local
-// browser and running the collector against programURL.
+// FetchRequests implements osvita.RequestsFetcher (applicant half only).
 func (d *LocalDriver) FetchRequests(ctx context.Context, programURL, year, sid, uid string) ([]abit.RawRequest, map[string]abit.ApplicantSubjects, error) {
+	res, err := d.collect(ctx, programURL, year, sid, uid)
+	if err != nil {
+		return nil, nil, err
+	}
+	return res.Requests, res.Subjects, nil
+}
+
+// FetchProgramData implements osvita.ProgramDataFetcher: one headful-browser run
+// returning both the page HTML and the applicant requests.
+func (d *LocalDriver) FetchProgramData(ctx context.Context, programURL, year, sid, uid string) (string, []abit.RawRequest, map[string]abit.ApplicantSubjects, error) {
+	res, err := d.collect(ctx, programURL, year, sid, uid)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	return res.StaticHTML, res.Requests, res.Subjects, nil
+}
+
+func (d *LocalDriver) collect(ctx context.Context, programURL, year, sid, uid string) (*browserResult, error) {
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, d.allocatorOptions()...)
 	defer cancelAlloc()
 	return runCollect(allocCtx, d.log, programURL, year, sid, uid)

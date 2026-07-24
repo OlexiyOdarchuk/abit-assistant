@@ -76,58 +76,110 @@ func New(browserURL string, opts ...Option) *Driver {
 // are normalised to an object in-page (osvita sends [] instead of {} when
 // empty), so a plain map decodes cleanly here.
 type browserResult struct {
-	Requests []abit.RawRequest                 `json:"requests"`
-	Subjects map[string]abit.ApplicantSubjects `json:"requests_subjects"`
-	Pages    int                               `json:"pages"`
-	Err      string                            `json:"error"`
+	// StaticHTML is document.documentElement.outerHTML captured AFTER the
+	// challenge is cleared — so osvita's server-rendered content (program name,
+	// the inline <script> config the decoder needs) is present. The osvita
+	// package parses this exactly as it parses a plain-HTTP page body.
+	StaticHTML string                            `json:"static_html"`
+	Requests   []abit.RawRequest                 `json:"requests"`
+	Subjects   map[string]abit.ApplicantSubjects `json:"requests_subjects"`
+	Pages      int                               `json:"pages"`
+	Err        string                            `json:"error"`
 }
 
-// FetchRequests implements osvita.RequestsFetcher. It renders programURL in the
-// remote browser and returns every applicant request plus the per-applicant
-// subjects map. The (year, sid, uid) triple addresses the same API the HTTP
-// driver uses.
+// FetchRequests implements osvita.RequestsFetcher — the applicant half only.
 func (d *Driver) FetchRequests(ctx context.Context, programURL, year, sid, uid string) ([]abit.RawRequest, map[string]abit.ApplicantSubjects, error) {
+	res, err := d.collect(ctx, programURL, year, sid, uid)
+	if err != nil {
+		return nil, nil, err
+	}
+	return res.Requests, res.Subjects, nil
+}
+
+// FetchProgramData implements osvita.ProgramDataFetcher: a single browser run
+// that returns BOTH the page HTML and the applicant requests. This is the path
+// used once osvita also 403s the static page — the browser clears the challenge
+// once and we read everything from that one authenticated session.
+func (d *Driver) FetchProgramData(ctx context.Context, programURL, year, sid, uid string) (string, []abit.RawRequest, map[string]abit.ApplicantSubjects, error) {
+	res, err := d.collect(ctx, programURL, year, sid, uid)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	return res.StaticHTML, res.Requests, res.Subjects, nil
+}
+
+func (d *Driver) collect(ctx context.Context, programURL, year, sid, uid string) (*browserResult, error) {
 	wsURL, err := d.resolveWS(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolve devtools endpoint: %w", err)
+		return nil, fmt.Errorf("resolve devtools endpoint: %w", err)
 	}
-
 	allocCtx, cancelAlloc := chromedp.NewRemoteAllocator(ctx, wsURL)
 	defer cancelAlloc()
 	return runCollect(allocCtx, d.log, programURL, year, sid, uid)
 }
 
-// runCollect drives one already-allocated browser (remote or local): it opens a
-// fresh tab, navigates to the program page, runs the in-page Turnstile
-// collector, and decodes the result. Shared by the remote (sidecar) and local
-// (headful Chrome) drivers — the only difference between them is how the
-// browser is allocated.
-func runCollect(allocCtx context.Context, log *slog.Logger, programURL, year, sid, uid string) ([]abit.RawRequest, map[string]abit.ApplicantSubjects, error) {
+// runCollect drives one already-allocated browser (remote or local): open a
+// tab, navigate, run the in-page collector, decode. Shared by the remote
+// (sidecar) and local (headful) drivers — only the allocation differs.
+//
+// It tolerates Cloudflare's post-captcha reload: when the user solves the
+// interactive challenge, Cloudflare calls window.location.reload(), which kills
+// the in-flight collector promise (CDP error -32000 "navigated or closed"). We
+// simply re-run the collector against the reloaded page — which now carries the
+// cf_clearance cookie, so it proceeds cleanly.
+func runCollect(allocCtx context.Context, log *slog.Logger, programURL, year, sid, uid string) (*browserResult, error) {
 	tabCtx, cancelTab := chromedp.NewContext(allocCtx)
 	defer cancelTab()
 
+	if err := chromedp.Run(tabCtx, chromedp.Navigate(programURL)); err != nil {
+		return nil, fmt.Errorf("navigate: %w", err)
+	}
+
 	js := collectorJS(year, sid, uid)
-	var res browserResult
+	await := func(p *runtime.EvaluateParams) *runtime.EvaluateParams { return p.WithAwaitPromise(true) }
 	start := time.Now()
-	err := chromedp.Run(tabCtx,
-		chromedp.Navigate(programURL),
-		chromedp.Evaluate(js, &res, func(p *runtime.EvaluateParams) *runtime.EvaluateParams {
-			return p.WithAwaitPromise(true)
-		}),
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("browser run: %w", err)
+
+	const maxReloadRetries = 5
+	var res browserResult
+	var runErr error
+	for attempt := range maxReloadRetries {
+		res = browserResult{}
+		runErr = chromedp.Run(tabCtx, chromedp.Evaluate(js, &res, await))
+		if runErr == nil {
+			break
+		}
+		if isNavigated(runErr) {
+			log.InfoContext(allocCtx, "osvitabrowser: page reloaded post-captcha, re-running collector",
+				"attempt", attempt+1, "url", programURL)
+			select {
+			case <-time.After(1500 * time.Millisecond):
+			case <-tabCtx.Done():
+				return nil, tabCtx.Err()
+			}
+			continue
+		}
+		return nil, fmt.Errorf("browser run: %w", runErr)
+	}
+	if runErr != nil {
+		return nil, fmt.Errorf("browser run: %w", runErr)
 	}
 	if res.Err != "" {
-		return nil, nil, fmt.Errorf("osvita page: %s", res.Err)
+		return nil, fmt.Errorf("osvita page: %s", res.Err)
 	}
-	log.InfoContext(allocCtx, "osvitabrowser: fetched requests",
-		"url", programURL, "requests", len(res.Requests), "pages", res.Pages,
-		"took", time.Since(start).Round(time.Millisecond))
 	if res.Subjects == nil {
 		res.Subjects = map[string]abit.ApplicantSubjects{}
 	}
-	return res.Requests, res.Subjects, nil
+	log.InfoContext(allocCtx, "osvitabrowser: fetched program data",
+		"url", programURL, "requests", len(res.Requests), "pages", res.Pages,
+		"html_bytes", len(res.StaticHTML), "took", time.Since(start).Round(time.Millisecond))
+	return &res, nil
+}
+
+// isNavigated reports whether err is Chrome's "inspected target navigated or
+// closed" (-32000) — raised when Cloudflare reloads the page mid-evaluate.
+func isNavigated(err error) bool {
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "-32000") || strings.Contains(s, "navigated or closed")
 }
 
 // resolveWS returns a websocket DevTools URL to hand chromedp. A ws(s):// base
@@ -215,26 +267,35 @@ func collectorJS(year, sid, uid string) string {
 	q := func(s string) string { b, _ := json.Marshal(s); return string(b) }
 	return `(async () => {
   const Y = ` + q(year) + `, SID = ` + q(sid) + `, UID = ` + q(uid) + `;
-  const READY_MS = 20000, TOKEN_MS = 20000, PAGE_CAP = 400, ROW_CAP = 200000, FLAKY_RETRIES = 4;
+  // READY_MS is generous: an INTERACTIVE challenge needs the user to click
+  // "я не робот" in the window, so give them a full minute.
+  const READY_MS = 60000, TOKEN_MS = 30000, PAGE_CAP = 400, ROW_CAP = 200000, FLAKY_RETRIES = 4;
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const ready = () => window.turnstile && typeof window.turnstile.getResponse === 'function';
+  // getToken NEVER throws: a bare turnstile.getResponse() during widget render
+  // raises "Could not find widget", which would kill the whole async function.
+  const getToken = () => { try { return window.turnstile.getResponse() || ''; } catch (e) { return ''; } };
   async function waitReady() {
     const t0 = Date.now();
     while (Date.now() - t0 < READY_MS) {
-      if (ready() && window.turnstile.getResponse()) return true;
-      await sleep(200);
+      if (ready() && getToken()) return true;
+      await sleep(250);
     }
-    return ready();
+    return ready() && !!getToken();
   }
+  // freshToken resets the widget and waits for a NEW token. Used only for pages
+  // AFTER the first — the first request reuses the token the user's solve just
+  // produced (resetting it would invalidate it and the first POST would fail
+  // with {"error":"Error"}).
   async function freshToken(prev) {
     try { window.turnstile.reset(); } catch (e) {}
     const t0 = Date.now();
     while (Date.now() - t0 < TOKEN_MS) {
-      const t = window.turnstile.getResponse();
+      const t = getToken();
       if (t && t !== prev) return t;
       await sleep(200);
     }
-    return null;
+    return '';
   }
   async function postPage(last, token) {
     const body = new URLSearchParams({ action: 'requests', y: Y, sid: SID, uid: UID, last: String(last), token });
@@ -246,19 +307,24 @@ func collectorJS(year, sid, uid string) string {
     }
     return j;
   }
-  const out = { requests: [], requests_subjects: {}, pages: 0, error: '' };
+  const out = { static_html: '', requests: [], requests_subjects: {}, pages: 0, error: '' };
   if (!(await waitReady())) {
-    out.error = 'turnstile not ready (typeof=' + (typeof window.turnstile) + ')';
+    out.error = 'turnstile not ready / not solved (typeof=' + (typeof window.turnstile) + ', tokenLen=' + getToken().length + ')';
     return out;
   }
+  // The challenge is cleared and the real page is rendered — snapshot it now so
+  // the osvita parser sees server content + the inline <script> config.
+  out.static_html = document.documentElement.outerHTML;
+
   let prev = '', last = 0;
   for (let page = 0; page < PAGE_CAP; page++) {
     let data = null;
     for (let attempt = 0; attempt < FLAKY_RETRIES; attempt++) {
-      const tok = await freshToken(prev);
+      // First request of the first page: reuse the just-solved token WITHOUT
+      // reset. Everything after: a fresh single-use token.
+      const tok = (page === 0 && attempt === 0) ? getToken() : await freshToken(prev);
       if (!tok) {
-        const cur = (() => { try { return window.turnstile.getResponse(); } catch (e) { return 'err:' + e.message; } })();
-        out.error = 'no fresh turnstile token (curLen=' + (cur ? cur.length : 0) + ', same=' + (cur === prev) + ')';
+        out.error = 'no turnstile token (curLen=' + getToken().length + ')';
         return out;
       }
       prev = tok;
