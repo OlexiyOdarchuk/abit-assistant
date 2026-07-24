@@ -37,3 +37,4 @@ coverage.txt
 /frontend/wailsjs/
 /build/bin/
 /AbitAssistant
+/.pgdata-local/
