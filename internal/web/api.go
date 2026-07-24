@@ -38,6 +38,7 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 
 	prog, err := s.deps.Program.Fetch(ctx, req.URL)
 	if err != nil {
+		s.log.WarnContext(ctx, "analyze: fetch program", "url", req.URL, "err", err)
 		writeErr(w, http.StatusBadGateway, "не вдалося отримати дані програми")
 		return
 	}
@@ -109,6 +110,7 @@ func (s *Server) handleSimulate(w http.ResponseWriter, r *http.Request) {
 
 	prog, err := s.deps.Program.Fetch(ctx, req.URL)
 	if err != nil {
+		s.log.WarnContext(ctx, "simulate: fetch program", "url", req.URL, "err", err)
 		writeErr(w, http.StatusBadGateway, "не вдалося отримати дані програми")
 		return
 	}

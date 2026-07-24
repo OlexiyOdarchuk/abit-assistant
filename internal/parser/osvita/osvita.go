@@ -57,11 +57,26 @@ const (
 // Parser fetches competitive offer data from vstup.osvita.ua. The zero value
 // is not usable; construct with New.
 type Parser struct {
-	client     *http.Client
-	apiURL     string
-	pageSize   int
-	workers    int
-	maxRetries int
+	client      *http.Client
+	apiURL      string
+	pageSize    int
+	workers     int
+	maxRetries  int
+	reqFallback RequestsFetcher
+}
+
+// RequestsFetcher fetches the applicant-requests half of a program when the
+// plain HTTP API is gated behind osvita's Turnstile challenge (2026: the
+// /api/ POST answers "Error 316 / Перезавантажте сторінку" without a valid
+// token). Implementations solve the challenge out-of-band — e.g. a headless
+// browser that renders osvita's Turnstile widget and drives the paginated API
+// with a fresh single-use token per page. The static program page is NOT
+// gated, so only this step needs the browser.
+type RequestsFetcher interface {
+	// FetchRequests returns every applicant request for the program plus the
+	// per-applicant subjects map, addressed by the same (year, sid, uid) the
+	// HTTP API uses. programURL is the public page URL to render.
+	FetchRequests(ctx context.Context, programURL, year, sid, uid string) (requests []abit.RawRequest, subjects map[string]abit.ApplicantSubjects, err error)
 }
 
 // Option configures a Parser.
@@ -82,6 +97,13 @@ func WithWorkers(n int) Option { return func(p *Parser) { p.workers = n } }
 
 // WithMaxRetries sets the per-request retry budget for transient failures.
 func WithMaxRetries(n int) Option { return func(p *Parser) { p.maxRetries = n } }
+
+// WithRequestsFallback installs a browser-backed (or other out-of-band)
+// fetcher used only when the plain HTTP API returns a Turnstile challenge.
+// Without it, a challenged program fails as before.
+func WithRequestsFallback(f RequestsFetcher) Option {
+	return func(p *Parser) { p.reqFallback = f }
+}
 
 // New builds a Parser with sensible defaults overridden by opts.
 func New(opts ...Option) *Parser {
@@ -129,7 +151,7 @@ func (p *Parser) Parse(ctx context.Context, programURL string) (*abit.Program, e
 		return nil, fmt.Errorf("osvita: static page: %w", err)
 	}
 
-	if err := p.fanOut(ctx, prog, sid, uid, year); err != nil {
+	if err := p.fanOut(ctx, prog, programURL, sid, uid, year); err != nil {
 		return nil, fmt.Errorf("osvita: requests: %w", err)
 	}
 	return prog, nil
@@ -165,7 +187,7 @@ func parseProgramURL(rawURL string) (sid, uid, year string, err error) {
 //
 // On the first hard error a worker records it and cancels the shared
 // context, so sibling lanes stop promptly instead of hammering osvita.
-func (p *Parser) fanOut(ctx context.Context, prog *abit.Program, sid, uid, year string) error {
+func (p *Parser) fanOut(ctx context.Context, prog *abit.Program, programURL, sid, uid, year string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -177,9 +199,22 @@ func (p *Parser) fanOut(ctx context.Context, prog *abit.Program, sid, uid, year 
 		wg       sync.WaitGroup
 	)
 
-	// Warm-up: osvita.ua frequently returns an empty body to a "cold"
-	// session, so prime the cookie jar with one throwaway request.
-	_, _ = p.fetchJSONURL(ctx, formValues(year, sid, uid, 0))
+	// Warm-up doubles as a challenge probe: osvita.ua returns an empty body to
+	// a "cold" session, so prime the cookie jar with one throwaway request —
+	// and if that request comes back as osvita's Turnstile challenge, hand the
+	// whole requests fetch to the browser fallback (when one is configured).
+	// The static program page is already loaded above, so only this half was
+	// missing.
+	_, warmErr := p.fetchJSONURL(ctx, formValues(year, sid, uid, 0))
+	if p.reqFallback != nil && errors.Is(warmErr, errChallenge) {
+		reqs, subj, err := p.reqFallback.FetchRequests(ctx, programURL, year, sid, uid)
+		if err != nil {
+			return fmt.Errorf("fallback: %w", err)
+		}
+		prog.Requests = reqs
+		prog.RequestSubjects = subj
+		return nil
+	}
 
 	for w := 0; w < p.workers; w++ {
 		wg.Add(1)
