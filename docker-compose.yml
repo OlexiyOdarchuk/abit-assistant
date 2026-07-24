@@ -39,11 +39,16 @@ services:
     environment:
       DATABASE_URL: postgres://abit:abit@postgres:5432/abit?sslmode=disable
       HTTP_ADDR: ":8080"
+      # Enables the browser fallback for osvita's Turnstile-gated applicant API.
+      # Unset → the app runs exactly as before (challenged programs just fail).
+      OSVITA_BROWSER_URL: http://chromium:9222
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+      chromium:
+        condition: service_started
     read_only: true
     cap_drop: [ALL]
     security_opt:
@@ -52,3 +57,40 @@ services:
       resources:
         limits:
           memory: 384M
+
+  # Headless Chromium sidecar — solves osvita's Cloudflare Turnstile challenge
+  # for the applicant API (the app image stays `scratch`; the browser never
+  # lives inside it). The Go app reaches it over CDP at OSVITA_BROWSER_URL.
+  # Pin the tag for reproducible builds; `latest` is used here for convenience.
+  chromium:
+    image: zenika/alpine-chrome:latest
+    container_name: abit-chromium
+    restart: unless-stopped
+    # Entrypoint is chromium-browser; these args make it a remote DevTools host.
+    #   --remote-debugging-address=0.0.0.0 — reachable from the app container
+    #   --remote-allow-origins=*           — newer Chromium rejects CDP otherwise
+    #   --disable-dev-shm-usage            — survive the small default /dev/shm
+    command:
+      - --headless
+      - --no-sandbox
+      - --disable-gpu
+      - --disable-dev-shm-usage
+      - --remote-debugging-address=0.0.0.0
+      - --remote-debugging-port=9222
+      - --remote-allow-origins=*
+      - about:blank
+    # Chrome is memory-hungry and needs real shared memory for page rendering.
+    shm_size: 512m
+    expose:
+      - "9222" # internal only — not published to the host
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:9222/json/version"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 1G
